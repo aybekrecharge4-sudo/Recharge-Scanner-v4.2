@@ -1,8 +1,7 @@
-  name: Weekly Recharge Scanner
-
-  on:
-    schedule:
-      # Every Monday at 07:00 UTC = 09:00 Amsterdam (CET)
+  name: Weekly Recharge Scanner                                                                                                                                                                                        
+                                                            
+  on:                                                                                                                                                                                                                  
+    schedule:                                                                                                                                                                                                          
       - cron: "0 7 * * 1"
     workflow_dispatch:
 
@@ -36,6 +35,7 @@
             SMTP_USER: ${{ secrets.SMTP_USER }}
             SMTP_PASS: ${{ secrets.SMTP_PASS }}
             DASHBOARD_URL: ${{ secrets.DASHBOARD_URL }}
+            DASH_PASSWORD: ${{ secrets.DASH_PASSWORD }}
           run: python recharge_scanner_v4.py
 
         - name: Commit and push updated dashboard
