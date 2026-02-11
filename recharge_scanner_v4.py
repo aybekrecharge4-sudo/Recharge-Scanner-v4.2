@@ -40,10 +40,11 @@ try:
 except ImportError: pass
 
 W = {
-    "trends": .11, "reddit": .09, "steam": .09, "news": .12,
-    "youtube": .08, "wiki": .02, "competitor": .06, "cheapshark": .06,
+    "trends": .11, "reddit": .09, "steam": .08, "news": .12,
+    "youtube": .08, "wiki": .02, "competitor": .06, "cheapshark": .05,
     "steamspy": .05, "gamerpower": .04, "epic": .05, "steam_new": .04,
-    "gog": .05, "humble": .05, "freetogame": .04, "anime": .05,
+    "gog": .04, "humble": .04, "freetogame": .03, "anime": .05,
+    "sitemap": .05,
 }
 
 CONF = {1: 0.55, 2: 0.75, 3: 0.90, 4: 1.0}
@@ -141,6 +142,13 @@ SUBREDDITS = [
 
 COMPETITORS = {"G2A":"https://www.g2a.com/","Eneba":"https://www.eneba.com/",
                "CDKeys":"https://www.cdkeys.com/","Kinguin":"https://www.kinguin.net/"}
+
+SITEMAP_COMPETITORS = {
+    "Eneba":"https://www.eneba.com/","Dundle":"https://www.dundle.com/",
+    "DoctorSIM":"https://www.doctorsim.com/","MobileRecharge":"https://www.mobilerecharge.com/",
+    "TalkHome":"https://talk-home.com/","OnTopUp":"https://ontopup.com/",
+    "KarteDirekt":"https://kartedirekt.de/","Aufladen":"https://aufladen.de/",
+}
 
 WIKI_PAGES = [
     "Grand_Theft_Auto_VI","EA_Sports_FC","Fortnite","PlayStation_5",
@@ -655,12 +663,76 @@ class AnimeFetcher:
         except: pass
         log.info(f"Anime: {len(out)}"); return out
 
+class SitemapFetcher:
+    """Fetch competitor sitemaps to find pages created/modified this week."""
+    def fetch(self):
+        out = []; cutoff = NOW - timedelta(days=7)
+        for name, base_url in SITEMAP_COMPETITORS.items():
+            try:
+                domain = urlparse(base_url).netloc
+                sitemap_urls = [
+                    f"https://{domain}/sitemap.xml",
+                    f"https://{domain}/sitemap_index.xml",
+                    f"https://{domain}/sitemap-pages.xml",
+                    f"https://{domain}/page-sitemap.xml",
+                ]
+                found_urls = []
+                for sm_url in sitemap_urls:
+                    try:
+                        r = GET(sm_url, timeout=10)
+                        if not r: continue
+                        root = ET.fromstring(r.content)
+                        ns = {"s":"http://www.sitemaps.org/schemas/sitemap/0.9"}
+                        # Check if it's a sitemap index
+                        sitemaps = root.findall("s:sitemap", ns)
+                        if sitemaps:
+                            for sm in sitemaps[:5]:
+                                loc = sm.find("s:loc", ns)
+                                if loc is not None and loc.text:
+                                    try:
+                                        r2 = GET(loc.text.strip(), timeout=10)
+                                        if r2: found_urls.extend(self._parse_urlset(r2.content, ns, cutoff))
+                                    except: continue
+                        else:
+                            found_urls.extend(self._parse_urlset(r.content, ns, cutoff))
+                        if found_urls: break
+                    except: continue
+                for page_url, lastmod in found_urls[:20]:
+                    path = urlparse(page_url).path.strip("/")
+                    page_title = path.split("/")[-1].replace("-"," ").replace("_"," ").title() if path else page_url
+                    out.append(Signal("sitemap", f"{name}: {page_title[:80]}",
+                        f"New/updated page on {name} ({lastmod})",
+                        url=page_url, score=40,
+                        meta={"comp":name,"lastmod":lastmod,"cats":cats(page_title)}))
+                time.sleep(0.5)
+            except Exception as e:
+                log.warning(f"Sitemap {name}: {e}")
+        log.info(f"Sitemaps: {len(out)}"); return out
+
+    def _parse_urlset(self, content, ns, cutoff):
+        results = []
+        try:
+            root = ET.fromstring(content)
+            for url_el in root.findall("s:url", ns):
+                loc = url_el.find("s:loc", ns)
+                mod = url_el.find("s:lastmod", ns)
+                if loc is None or mod is None: continue
+                loc_text = loc.text.strip() if loc.text else ""
+                mod_text = mod.text.strip()[:10] if mod.text else ""
+                try:
+                    mod_date = datetime.strptime(mod_text, "%Y-%m-%d")
+                    if mod_date >= cutoff:
+                        results.append((loc_text, mod_text))
+                except: continue
+        except: pass
+        return results
+
 # =============================================================================
 # SECTION 5 - CONCURRENT ORCHESTRATOR
 # =============================================================================
 
 def fetch_all():
-    print("\n" + "="*60); print("FETCHING 16 SOURCES (concurrent)"); print("="*60)
+    print("\n" + "="*60); print("FETCHING 17 SOURCES (concurrent)"); print("="*60)
     fetchers = {
         "trends":TrendsFetcher(),"reddit":RedditFetcher(),"steam":SteamFetcher(),
         "wiki":WikiFetcher(),"youtube":YTFetcher(),"news":NewsFetcher(),
@@ -669,6 +741,7 @@ def fetch_all():
         "epic":EpicFreeFetcher(),"steam_new":SteamNewReleasesFetcher(),
         "gog":GOGFetcher(),"humble":HumbleFetcher(),
         "freetogame":FreeToGameFetcher(),"anime":AnimeFetcher(),
+        "sitemap":SitemapFetcher(),
     }
     results = {}
     with ThreadPoolExecutor(max_workers=6) as ex:
@@ -793,15 +866,19 @@ REAL-TIME INTELLIGENCE: {intel if intel else "Not available"}
 EVENTS (next 60 days): {et}
 SCORED CANDIDATES (16 sources, composite scored): {ct}
 
-Pick TOP 15 highest-impact opportunities. Prioritize TIME-SENSITIVE, TRENDING topics (new releases, major updates, events happening NOW or this week). Avoid generic evergreen topics. Only things that can move revenue for a gift card / digital credits platform.
+Pick TOP 15 highest-impact opportunities.
+
+RULES:
+1. ONLY pick topics that have ACTUAL NEWS this week (new game update, new season launch, new event, price drop, new release, trending controversy, viral moment).
+2. NEVER pick generic evergreen topics like "Roblox" or "Fortnite" without a specific THIS-WEEK event.
+3. Every opportunity must answer "what happened THIS WEEK that makes this urgent?"
+4. Use EXACT candidate titles from the list above. Do NOT rephrase them.
+5. Spread across categories. Each must drive gift card / digital credit purchases.
 
 Return JSON: {{"opportunities": [
   {{"title": "...", "category": "...", "urgency": "critical|high|medium",
-    "confidence": 0.0-1.0, "why_now": "1 sentence", "revenue_signal": "how this drives purchases, 1 sentence"}}
-]}}
-
-IMPORTANT: Use EXACT candidate titles from the list above. Do NOT rephrase them.
-Each must be specific and time-bound. Spread across categories."""
+    "confidence": 0.0-1.0, "why_now": "specific event/news THIS WEEK", "revenue_signal": "how this drives purchases, 1 sentence"}}
+]}}"""
     r = _gemini_json(prompt)
     if r and "opportunities" in r: print(f"  {len(r['opportunities'])} opportunities"); return r["opportunities"]
     return [{"title":c.title,"category":c.category,"urgency":"high" if c.score>50 else "medium",
@@ -971,6 +1048,22 @@ def build_html(cands, ai, events, all_sig):
     pred_html = "".join(f"<li>{esc(p)}</li>" for p in ex.get("predictions",[]))
     risk_html = "".join(f"<li>{esc(r)}</li>" for r in ex.get("risks",[]))
 
+    # Build competitor new pages table from sitemap signals
+    sitemap_sigs = all_sig.get("sitemap",[])
+    sitemap_by_comp = defaultdict(list)
+    for s in sitemap_sigs:
+        sitemap_by_comp[s.meta.get("comp","?")].append(s)
+    sitemap_rows = ""
+    for comp_name in sorted(sitemap_by_comp.keys()):
+        for s in sitemap_by_comp[comp_name][:10]:
+            page_title = s.title.replace(f"{comp_name}: ","",1)
+            lastmod = s.meta.get("lastmod","")
+            sitemap_rows += f"""<tr><td><strong>{esc(comp_name)}</strong></td>
+<td class="opp-title"><a href="{esc(s.url)}" target="_blank" rel="noopener">{esc(page_title[:60])}</a></td>
+<td>{esc(lastmod)}</td></tr>"""
+    sitemap_html = f"""<table><thead><tr><th>Competitor</th><th>New/Updated Page</th><th>Date</th></tr></thead>
+<tbody>{sitemap_rows}</tbody></table>""" if sitemap_rows else '<p class="t2">No new competitor pages found this week.</p>'
+
     html = f"""<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Recharge.com Opportunity Scanner</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
@@ -1055,6 +1148,7 @@ td{{padding:9px 10px;border-bottom:1px solid var(--border)}}tr:hover{{background
 <div class="card"><h2>Competitor Positioning</h2>{comp_html if comp_html else '<p class="t2">No competitor data.</p>'}</div>
 <div class="card"><h2>Outlook</h2><h3>Predicted Trends</h3><ul style="font-size:13px;padding-left:16px">{pred_html}</ul>
 <h3>Risk Watchlist</h3><ul style="font-size:13px;padding-left:16px">{risk_html}</ul></div></div>
+<div class="card"><h2>Competitor New Pages This Week</h2>{sitemap_html}</div>
 <div class="card"><h2>Events Calendar</h2><table><thead><tr><th>Event</th><th>Category</th><th>Status</th><th>Details</th></tr></thead>
 <tbody>{events_rows}</tbody></table></div>
 <footer style="text-align:center;padding:20px;color:var(--t2);font-size:11px">
