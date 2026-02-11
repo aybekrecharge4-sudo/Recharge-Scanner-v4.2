@@ -664,68 +664,185 @@ class AnimeFetcher:
         log.info(f"Anime: {len(out)}"); return out
 
 class SitemapFetcher:
-    """Fetch competitor sitemaps to find pages created/modified this week."""
+    """Fetch competitor sitemaps + blog RSS to find pages published this week."""
+    BLOG_PATHS = [
+        "/blog/feed","/blog/rss","/feed","/rss","/feed.xml","/rss.xml",
+        "/blog/feed/","/blog/atom.xml","/en/blog/feed","/news/feed",
+        "/blog.rss","/articles/feed","/feed/rss2","/blog/rss.xml",
+    ]
+
     def fetch(self):
         out = []; cutoff = NOW - timedelta(days=7)
         for name, base_url in SITEMAP_COMPETITORS.items():
             try:
                 domain = urlparse(base_url).netloc
-                # Step 1: Try robots.txt first to discover sitemaps
-                sitemap_urls = []
-                try:
-                    r_robots = GET(f"https://{domain}/robots.txt", timeout=8)
-                    if r_robots:
-                        for line in r_robots.text.splitlines():
-                            if line.lower().startswith("sitemap:"):
-                                sm_url = line.split(":",1)[1].strip()
-                                if sm_url and sm_url not in sitemap_urls:
-                                    sitemap_urls.append(sm_url)
-                except: pass
-                # Step 2: Add common sitemap URL patterns as fallback
-                sitemap_urls.extend([
-                    f"https://{domain}/sitemap.xml",
-                    f"https://{domain}/sitemap_index.xml",
-                    f"https://{domain}/sitemap-pages.xml",
-                    f"https://{domain}/page-sitemap.xml",
-                    f"https://{domain}/post-sitemap.xml",
-                    f"https://{domain}/wp-sitemap.xml",
-                    f"https://{domain}/sitemap1.xml",
-                ])
-                # Deduplicate
-                sitemap_urls = list(dict.fromkeys(sitemap_urls))
-                found_urls = []
-                for sm_url in sitemap_urls:
-                    try:
-                        r = GET(sm_url, timeout=10)
-                        if not r: continue
-                        root = ET.fromstring(r.content)
-                        ns = {"s":"http://www.sitemaps.org/schemas/sitemap/0.9"}
-                        # Check if it's a sitemap index
-                        sitemaps = root.findall("s:sitemap", ns)
-                        if sitemaps:
-                            for sm in sitemaps[:5]:
-                                loc = sm.find("s:loc", ns)
-                                if loc is not None and loc.text:
-                                    try:
-                                        r2 = GET(loc.text.strip(), timeout=10)
-                                        if r2: found_urls.extend(self._parse_urlset(r2.content, ns, cutoff))
-                                    except: continue
-                        else:
-                            found_urls.extend(self._parse_urlset(r.content, ns, cutoff))
-                        if found_urls: break
-                    except: continue
-                log.info(f"Sitemap {name}: {len(found_urls)} new pages")
-                for page_url, lastmod in found_urls[:20]:
-                    path = urlparse(page_url).path.strip("/")
-                    page_title = path.split("/")[-1].replace("-"," ").replace("_"," ").title() if path else page_url
-                    out.append(Signal("sitemap", f"{name}: {page_title[:80]}",
-                        f"New/updated page on {name} ({lastmod})",
-                        url=page_url, score=40,
-                        meta={"comp":name,"lastmod":lastmod,"cats":cats(page_title)}))
+                scheme = "https"
+
+                # === PART A: Blog RSS feeds ===
+                blog_found = self._fetch_blog_rss(name, domain, scheme, cutoff, out)
+
+                # === PART B: HTML blog page scrape (fallback if no RSS) ===
+                if not blog_found:
+                    self._scrape_blog_html(name, domain, scheme, cutoff, out)
+
+                # === PART C: Sitemap XML ===
+                self._fetch_sitemaps(name, domain, scheme, cutoff, out)
+
                 time.sleep(0.5)
             except Exception as e:
                 log.warning(f"Sitemap {name}: {e}")
-        log.info(f"Sitemaps total: {len(out)}"); return out
+        log.info(f"Competitor pages total: {len(out)}"); return out
+
+    def _fetch_blog_rss(self, name, domain, scheme, cutoff, out):
+        """Try common blog RSS feed URLs. Returns True if any blog posts found."""
+        found_any = False
+        # Also try to discover RSS from the HTML <link> tag
+        rss_urls = [f"{scheme}://{domain}{p}" for p in self.BLOG_PATHS]
+        # Try HTML <link rel="alternate"> discovery on /blog
+        for blog_path in ["/blog","/blog/","/en/blog","/news","/articles"]:
+            try:
+                r = GET(f"{scheme}://{domain}{blog_path}", timeout=8)
+                if not r: continue
+                soup = BeautifulSoup(r.text, "html.parser")
+                for link in soup.find_all("link", rel="alternate"):
+                    href = link.get("href","")
+                    lt = link.get("type","")
+                    if href and ("rss" in lt or "atom" in lt or "xml" in lt):
+                        if href.startswith("/"): href = f"{scheme}://{domain}{href}"
+                        if href not in rss_urls: rss_urls.insert(0, href)
+                break  # Only need to check one blog page for <link>
+            except: continue
+
+        for rss_url in rss_urls:
+            try:
+                feed = feedparser.parse(rss_url)
+                if not feed.entries: continue
+                for e in feed.entries[:15]:
+                    title = e.get("title","").strip()
+                    link = e.get("link","")
+                    pub = e.get("published", e.get("updated",""))
+                    if not title: continue
+                    if not recent(pub, 7): continue
+                    pub_short = pub[:10] if pub else DATE
+                    # Try to get a clean date
+                    for fmt in ['%a, %d %b %Y %H:%M:%S %z','%Y-%m-%dT%H:%M:%S%z','%Y-%m-%d']:
+                        try:
+                            pub_short = datetime.strptime(pub.replace('GMT','+0000'),fmt).strftime("%Y-%m-%d")
+                            break
+                        except: continue
+                    out.append(Signal("sitemap", f"{name}: {title[:80]}",
+                        f"Blog post on {name} ({pub_short})",
+                        url=link, score=50,
+                        meta={"comp":name,"lastmod":pub_short,"type":"blog","cats":cats(title)}))
+                    found_any = True
+                if found_any:
+                    log.info(f"Blog RSS {name}: found posts")
+                    break  # Got a working feed, no need to try more
+            except: continue
+        return found_any
+
+    def _scrape_blog_html(self, name, domain, scheme, cutoff, out):
+        """Fallback: scrape the blog HTML page for article links & titles."""
+        for blog_path in ["/blog","/blog/","/en/blog","/news","/articles"]:
+            try:
+                r = GET(f"{scheme}://{domain}{blog_path}", timeout=10)
+                if not r or r.status_code != 200: continue
+                soup = BeautifulSoup(r.text, "html.parser")
+                # Look for article-like elements
+                articles = soup.find_all(["article","div"],
+                    class_=re.compile(r"post|article|blog|card|entry", re.I))
+                if not articles:
+                    # Fallback: just find all links that look like blog posts
+                    articles = soup.find_all("a", href=re.compile(r"/blog/|/post/|/article/|/news/"))
+                found = 0
+                for art in articles[:10]:
+                    # Get title
+                    h = art.find(["h1","h2","h3","h4"])
+                    if h:
+                        title = h.get_text(strip=True)
+                    elif art.name == "a":
+                        title = art.get_text(strip=True)
+                    else:
+                        continue
+                    if not title or len(title) < 10: continue
+                    # Get link
+                    link_el = art.find("a", href=True) if art.name != "a" else art
+                    href = link_el.get("href","") if link_el else ""
+                    if href.startswith("/"): href = f"{scheme}://{domain}{href}"
+                    # Get date if available
+                    time_el = art.find("time")
+                    date_str = time_el.get("datetime","")[:10] if time_el else ""
+                    if date_str:
+                        try:
+                            if datetime.strptime(date_str, "%Y-%m-%d") < cutoff: continue
+                        except: pass
+                    out.append(Signal("sitemap", f"{name}: {title[:80]}",
+                        f"Blog page on {name}" + (f" ({date_str})" if date_str else ""),
+                        url=href, score=45,
+                        meta={"comp":name,"lastmod":date_str or "recent","type":"blog","cats":cats(title)}))
+                    found += 1
+                if found:
+                    log.info(f"Blog scrape {name}: {found} posts")
+                    break
+            except: continue
+
+    def _fetch_sitemaps(self, name, domain, scheme, cutoff, out):
+        """Fetch XML sitemaps for new/modified pages."""
+        sitemap_urls = []
+        # Step 1: robots.txt
+        try:
+            r_robots = GET(f"{scheme}://{domain}/robots.txt", timeout=8)
+            if r_robots:
+                for line in r_robots.text.splitlines():
+                    if line.lower().startswith("sitemap:"):
+                        sm_url = line.split(":",1)[1].strip()
+                        if sm_url and sm_url not in sitemap_urls:
+                            sitemap_urls.append(sm_url)
+        except: pass
+        # Step 2: Common patterns
+        sitemap_urls.extend([
+            f"{scheme}://{domain}/sitemap.xml",
+            f"{scheme}://{domain}/sitemap_index.xml",
+            f"{scheme}://{domain}/sitemap-pages.xml",
+            f"{scheme}://{domain}/page-sitemap.xml",
+            f"{scheme}://{domain}/post-sitemap.xml",
+            f"{scheme}://{domain}/wp-sitemap.xml",
+            f"{scheme}://{domain}/sitemap1.xml",
+        ])
+        sitemap_urls = list(dict.fromkeys(sitemap_urls))
+        found_urls = []
+        for sm_url in sitemap_urls:
+            try:
+                r = GET(sm_url, timeout=10)
+                if not r: continue
+                root = ET.fromstring(r.content)
+                ns = {"s":"http://www.sitemaps.org/schemas/sitemap/0.9"}
+                sitemaps = root.findall("s:sitemap", ns)
+                if sitemaps:
+                    for sm in sitemaps[:5]:
+                        loc = sm.find("s:loc", ns)
+                        if loc is not None and loc.text:
+                            try:
+                                r2 = GET(loc.text.strip(), timeout=10)
+                                if r2: found_urls.extend(self._parse_urlset(r2.content, ns, cutoff))
+                            except: continue
+                else:
+                    found_urls.extend(self._parse_urlset(r.content, ns, cutoff))
+                if found_urls: break
+            except: continue
+        log.info(f"Sitemap {name}: {len(found_urls)} new pages")
+        # Deduplicate against existing signals for this competitor
+        existing_urls = set()
+        for s in out:
+            if s.meta.get("comp") == name: existing_urls.add(s.url)
+        for page_url, lastmod in found_urls[:20]:
+            if page_url in existing_urls: continue
+            path = urlparse(page_url).path.strip("/")
+            page_title = path.split("/")[-1].replace("-"," ").replace("_"," ").title() if path else page_url
+            out.append(Signal("sitemap", f"{name}: {page_title[:80]}",
+                f"New/updated page on {name} ({lastmod})",
+                url=page_url, score=40,
+                meta={"comp":name,"lastmod":lastmod,"type":"page","cats":cats(page_title)}))
 
     def _parse_urlset(self, content, ns, cutoff):
         results = []
@@ -736,9 +853,7 @@ class SitemapFetcher:
                 mod = url_el.find("s:lastmod", ns)
                 if loc is None: continue
                 loc_text = loc.text.strip() if loc.text else ""
-                if mod is None:
-                    # No lastmod — can't filter by date, skip
-                    continue
+                if mod is None: continue
                 mod_text = mod.text.strip()[:10] if mod.text else ""
                 try:
                     mod_date = datetime.strptime(mod_text, "%Y-%m-%d")
@@ -1097,7 +1212,7 @@ def build_html(cands, ai, events, all_sig):
     pred_html = "".join(f"<li>{esc(p)}</li>" for p in ex.get("predictions",[]))
     risk_html = "".join(f"<li>{esc(r)}</li>" for r in ex.get("risks",[]))
 
-    # Build per-competitor sitemap sections
+    # Build per-competitor sitemap + blog sections
     sitemap_sigs = all_sig.get("sitemap",[])
     sitemap_by_comp = defaultdict(list)
     for s in sitemap_sigs:
@@ -1106,15 +1221,26 @@ def build_html(cands, ai, events, all_sig):
     for comp_name in SITEMAP_COMPETITORS:
         pages = sitemap_by_comp.get(comp_name,[])
         if pages:
+            blogs = [s for s in pages if s.meta.get("type") == "blog"]
+            site_pages = [s for s in pages if s.meta.get("type") != "blog"]
             rows = ""
-            for s in pages[:10]:
+            for s in blogs[:10]:
                 page_title = s.title.replace(f"{comp_name}: ","",1)
                 lastmod = s.meta.get("lastmod","")
-                rows += f"""<tr><td class="opp-title"><a href="{esc(s.url)}" target="_blank" rel="noopener">{esc(page_title[:60])}</a></td><td>{esc(lastmod)}</td></tr>"""
-            sitemap_html += f"""<h3 style="margin-top:14px">{esc(comp_name)} <span class="badge urg-high">{len(pages)} new</span></h3>
-<table><thead><tr><th>New/Updated Page</th><th>Date</th></tr></thead><tbody>{rows}</tbody></table>"""
+                rows += f"""<tr><td class="opp-title"><a href="{esc(s.url)}" target="_blank" rel="noopener">{esc(page_title[:60])}</a></td><td><span class="pill">Blog</span></td><td>{esc(lastmod)}</td></tr>"""
+            for s in site_pages[:10]:
+                page_title = s.title.replace(f"{comp_name}: ","",1)
+                lastmod = s.meta.get("lastmod","")
+                rows += f"""<tr><td class="opp-title"><a href="{esc(s.url)}" target="_blank" rel="noopener">{esc(page_title[:60])}</a></td><td><span class="cat-tag">Page</span></td><td>{esc(lastmod)}</td></tr>"""
+            blog_count = len(blogs); page_count = len(site_pages)
+            badge_parts = []
+            if blog_count: badge_parts.append(f"{blog_count} blog")
+            if page_count: badge_parts.append(f"{page_count} page")
+            badge_text = " + ".join(badge_parts)
+            sitemap_html += f"""<h3 style="margin-top:14px">{esc(comp_name)} <span class="badge urg-high">{badge_text}</span></h3>
+<table><thead><tr><th>Title</th><th>Type</th><th>Date</th></tr></thead><tbody>{rows}</tbody></table>"""
         else:
-            sitemap_html += f"""<h3 style="margin-top:14px">{esc(comp_name)} <span class="t2" style="font-weight:normal;font-size:11px">&mdash; no new pages</span></h3>"""
+            sitemap_html += f"""<h3 style="margin-top:14px">{esc(comp_name)} <span class="t2" style="font-weight:normal;font-size:11px">&mdash; no new pages this week</span></h3>"""
     if not sitemap_html:
         sitemap_html = '<p class="t2">No competitor sitemaps checked.</p>'
 
@@ -1202,7 +1328,7 @@ td{{padding:9px 10px;border-bottom:1px solid var(--border)}}tr:hover{{background
 <div class="card"><h2>Competitor Positioning</h2>{comp_html if comp_html else '<p class="t2">No competitor data.</p>'}</div>
 <div class="card"><h2>Outlook</h2><h3>Predicted Trends</h3><ul style="font-size:13px;padding-left:16px">{pred_html}</ul>
 <h3>Risk Watchlist</h3><ul style="font-size:13px;padding-left:16px">{risk_html}</ul></div></div>
-<div class="card"><h2>Competitor New Pages This Week</h2>{sitemap_html}</div>
+<div class="card"><h2>Competitor Activity This Week (Blog Posts &amp; New Pages)</h2>{sitemap_html}</div>
 <div class="card"><h2>Events Calendar</h2><table><thead><tr><th>Event</th><th>Category</th><th>Status</th><th>Details</th></tr></thead>
 <tbody>{events_rows}</tbody></table></div>
 <footer style="text-align:center;padding:20px;color:var(--t2);font-size:11px">
@@ -1372,29 +1498,43 @@ def send_email(html_body, subject=None):
     to_addr = os.environ.get("EMAIL_TO","").strip()
     from_addr = os.environ.get("EMAIL_FROM","").strip()
     smtp_host = os.environ.get("SMTP_HOST","smtp.gmail.com").strip()
-    smtp_port = int(os.environ.get("SMTP_PORT","587").strip())
+    smtp_port_raw = os.environ.get("SMTP_PORT","587").strip()
     smtp_user = os.environ.get("SMTP_USER","").strip()
     smtp_pass = os.environ.get("SMTP_PASS","").strip().replace(" ","")  # Gmail app passwords: strip spaces
+
+    # Debug: show what we have (mask password)
+    print(f"EMAIL CONFIG: to={to_addr!r}, from={from_addr!r}, host={smtp_host!r}, port={smtp_port_raw!r}, user={smtp_user!r}, pass_len={len(smtp_pass)}")
+    sys.stdout.flush()
+
     missing = [n for n,v in [("EMAIL_TO",to_addr),("EMAIL_FROM",from_addr),("SMTP_USER",smtp_user),("SMTP_PASS",smtp_pass)] if not v]
     if missing:
         print(f"EMAIL SEND... skipped (missing secrets: {', '.join(missing)})"); sys.stdout.flush()
         return False
+
+    smtp_port = int(smtp_port_raw)
     print(f"EMAIL SEND... connecting to {smtp_host}:{smtp_port} as {smtp_user}"); sys.stdout.flush()
     import smtplib; from email.mime.multipart import MIMEMultipart; from email.mime.text import MIMEText
     if not subject: subject = f"Recharge.com Scanner | {DATE} | Weekly Opportunity Report"
     msg = MIMEMultipart('alternative'); msg['Subject'] = subject; msg['From'] = from_addr; msg['To'] = to_addr
     msg.attach(MIMEText(html_body,'html'))
     try:
-        with smtplib.SMTP(smtp_host,smtp_port,timeout=30) as server:
-            server.ehlo()
-            server.starttls()
-            server.ehlo()
-            server.login(smtp_user,smtp_pass)
-            recipients = [a.strip() for a in to_addr.split(",")]
-            server.sendmail(from_addr, recipients, msg.as_string())
+        print(f"EMAIL SEND... opening SMTP connection..."); sys.stdout.flush()
+        server = smtplib.SMTP(smtp_host, smtp_port, timeout=30)
+        server.set_debuglevel(1)  # Print SMTP conversation to stdout
+        server.ehlo()
+        print(f"EMAIL SEND... STARTTLS..."); sys.stdout.flush()
+        server.starttls()
+        server.ehlo()
+        print(f"EMAIL SEND... logging in..."); sys.stdout.flush()
+        server.login(smtp_user, smtp_pass)
+        print(f"EMAIL SEND... sending to {to_addr}..."); sys.stdout.flush()
+        recipients = [a.strip() for a in to_addr.split(",")]
+        server.sendmail(from_addr, recipients, msg.as_string())
+        server.quit()
         print(f"EMAIL SEND... OK -> {to_addr}"); sys.stdout.flush(); return True
     except Exception as e:
         print(f"EMAIL SEND... FAILED: {type(e).__name__}: {e}"); sys.stdout.flush()
+        import traceback; traceback.print_exc(); sys.stdout.flush()
         return False
 
 # =============================================================================
