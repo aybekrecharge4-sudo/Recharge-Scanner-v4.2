@@ -40,10 +40,10 @@ try:
 except ImportError: pass
 
 W = {
-    "trends": .10, "reddit": .08, "steam": .09, "news": .09,
-    "youtube": .07, "wiki": .06, "competitor": .06, "cheapshark": .06,
-    "steamspy": .06, "gamerpower": .04, "epic": .05, "steam_new": .04,
-    "gog": .05, "humble": .05, "freetogame": .04, "anime": .06,
+    "trends": .11, "reddit": .09, "steam": .09, "news": .12,
+    "youtube": .08, "wiki": .02, "competitor": .06, "cheapshark": .06,
+    "steamspy": .05, "gamerpower": .04, "epic": .05, "steam_new": .04,
+    "gog": .05, "humble": .05, "freetogame": .04, "anime": .05,
 }
 
 CONF = {1: 0.55, 2: 0.75, 3: 0.90, 4: 1.0}
@@ -291,13 +291,25 @@ def norm(v, mx): return min(100.0, v/mx*100.0) if mx > 0 else 0.0
 def esc(s): return _html.escape(str(s))
 
 def _best_url(signals):
-    prio = {"news":1,"youtube":2,"steam":3,"gog":4,"humble":5,"cheapshark":6,
-            "epic":7,"anime":8,"gamerpower":9,"reddit":10,"wiki":11,
-            "steam_new":12,"steamspy":13,"freetogame":14,"competitor":15,"trends":16}
+    prio = {"news":1,"reddit":2,"youtube":3,"steam":4,"gog":5,"humble":6,"cheapshark":7,
+            "epic":8,"anime":9,"gamerpower":10,"steam_new":11,"steamspy":12,
+            "freetogame":13,"competitor":14,"trends":15,"wiki":99}
     urls = [(s.url, prio.get(s.source,20)) for s in signals if s.url]
     if not urls: return ""
     urls.sort(key=lambda x: x[1])
     return urls[0][0]
+
+def _fmt_action(a):
+    if isinstance(a, dict):
+        owner = a.get("owner","")
+        action = a.get("action","")
+        due = a.get("due","")
+        parts = []
+        if owner: parts.append(f"<strong>{esc(owner)}</strong>: ")
+        parts.append(esc(action))
+        if due: parts.append(f" <em>({esc(due)})</em>")
+        return "".join(parts)
+    return esc(str(a))
 
 def _match_cand(title, cands):
     """Find BEST matching candidate (not first-above-threshold). Prevents wrong URL matches."""
@@ -407,7 +419,7 @@ class WikiFetcher:
                     if views > 1000:
                         out.append(Signal("wiki",name,f"{views:,} views this week",
                             url=f"https://en.wikipedia.org/wiki/{pg}",
-                            score=norm(views,100000),meta={"views":views,"cats":cats(name)}))
+                            score=norm(views,200000),meta={"views":views,"cats":cats(name)}))
             except: continue
         log.info(f"Wiki: {len(out)}"); return out
 
@@ -444,7 +456,7 @@ class NewsFetcher:
                     seen.add(k)
                     if not mass_appeal(t) or not recent(e.get("published",""),7): continue
                     cc = cats(t)
-                    if cc: out.append(Signal("news",t[:150],f"via {src}",url=e.get("link",""),score=55,meta={"src":src,"cats":cc}))
+                    if cc: out.append(Signal("news",t[:150],f"via {src}",url=e.get("link",""),score=70,meta={"src":src,"cats":cc}))
                 time.sleep(0.15)
             except: continue
         for fn,fu in RSS_FEEDS.items():
@@ -457,7 +469,7 @@ class NewsFetcher:
                     seen.add(k)
                     if not mass_appeal(t) or not recent(e.get("published",e.get("updated","")),7): continue
                     cc = cats(t)
-                    if cc: out.append(Signal("news",t[:150],f"via {fn}",url=e.get("link",""),score=50,meta={"src":fn,"cats":cc}))
+                    if cc: out.append(Signal("news",t[:150],f"via {fn}",url=e.get("link",""),score=65,meta={"src":fn,"cats":cc}))
                 time.sleep(0.05)
             except: continue
         log.info(f"News: {len(out)}"); return out
@@ -777,7 +789,7 @@ REAL-TIME INTELLIGENCE: {intel if intel else "Not available"}
 EVENTS (next 60 days): {et}
 SCORED CANDIDATES (16 sources, composite scored): {ct}
 
-Pick TOP 15 highest-impact opportunities. Only things that can move revenue for a gift card / digital credits platform.
+Pick TOP 15 highest-impact opportunities. Prioritize TIME-SENSITIVE, TRENDING topics (new releases, major updates, events happening NOW or this week). Avoid generic evergreen topics. Only things that can move revenue for a gift card / digital credits platform.
 
 Return JSON: {{"opportunities": [
   {{"title": "...", "category": "...", "urgency": "critical|high|medium",
@@ -815,8 +827,9 @@ SEO BRIEFS: {json.dumps(briefs[:8],indent=2)}
 
 Search the web for latest gaming/streaming news. Write executive briefing. Every sentence must earn its place.
 Return JSON: {{"summary":"3 sentences max, lead with #1 revenue opportunity",
-"actions":["3 urgent actions with owners: SEO/content/marketing team - due THIS WEEK"],
-"predictions":["2-3 specific trends next 1-2 weeks"],"risks":["2-3 risks to watch"]}}"""
+"actions":["SEO Team: do X this week","Content Team: do Y this week","Marketing Team: do Z this week"],
+"predictions":["2-3 specific trends next 1-2 weeks"],"risks":["2-3 risks to watch"]}}
+IMPORTANT: Each action must be a plain STRING like "SEO Team: Update landing pages for X - due THIS WEEK". Do NOT return objects/dicts."""
     result = _gemini_grounded(prompt)
     if result and result.get("text"):
         try:
@@ -951,7 +964,7 @@ def build_html(cands, ai, events, all_sig):
         sources_html = '<div class="ground-sources"><h4>Verified Sources</h4><ul>' + "".join(
             f'<li><a href="{esc(gs.get("url",""))}" target="_blank">{esc(gs.get("title","Source"))}</a></li>' for gs in g_sources[:8]) + '</ul></div>'
 
-    actions_html = "".join(f'<li class="action-item">{esc(a)}</li>' for a in ex.get("actions",[]))
+    actions_html = "".join(f'<li class="action-item">{_fmt_action(a)}</li>' for a in ex.get("actions",[]))
     pred_html = "".join(f"<li>{esc(p)}</li>" for p in ex.get("predictions",[]))
     risk_html = "".join(f"<li>{esc(r)}</li>" for r in ex.get("risks",[]))
 
@@ -1119,7 +1132,10 @@ def build_docx(cands, ai, events, all_sig):
     r = p.add_run(f"{DATE} {TIME} | {n_sources} sources | 4-pass AI"); r.font.color.rgb = RGBColor(128,128,128); r.font.size = Pt(10)
     doc.add_heading("Executive Summary",level=1); doc.add_paragraph(ex.get("summary",""))
     doc.add_heading("Immediate Actions",level=1)
-    for i,a in enumerate(ex.get("actions",[]),1): p = doc.add_paragraph(); p.add_run(f"{i}. ").bold = True; p.add_run(a)
+    for i,a in enumerate(ex.get("actions",[]),1):
+        p = doc.add_paragraph(); p.add_run(f"{i}. ").bold = True
+        if isinstance(a,dict): p.add_run(f"{a.get('owner','')}: {a.get('action','')} ({a.get('due','')})")
+        else: p.add_run(str(a))
     doc.add_heading("Top Opportunities",level=1)
     tbl = doc.add_table(rows=1,cols=7); tbl.style = "Table Grid"
     for i,h in enumerate(["#","Opportunity","Category","Score","Src","Urgency","Revenue Signal"]):
@@ -1182,7 +1198,7 @@ def build_email_html(cands, ai, events, all_sig, dashboard_url=""):
 <td style="padding:10px 8px;border-bottom:1px solid #e5e7eb;text-align:center"><span style="background:{urg_bg};color:{urg_color};padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600;text-transform:uppercase">{urg}</span></td>
 <td style="padding:10px 8px;border-bottom:1px solid #e5e7eb;color:#6b7280;font-size:12px">{esc(o.get("revenue_signal",""))[:55]}</td>
 <td style="padding:10px 8px;border-bottom:1px solid #e5e7eb">{src_td}</td></tr>"""
-    actions_html = "".join(f'<li style="padding:5px 0;font-size:14px;color:#1f2937">{esc(a)}</li>' for a in ex.get("actions",[]))
+    actions_html = "".join(f'<li style="padding:5px 0;font-size:14px;color:#1f2937">{_fmt_action(a)}</li>' for a in ex.get("actions",[]))
     dash_btn = f'<tr><td style="padding:24px 32px;text-align:center"><a href="{esc(dashboard_url)}" style="display:inline-block;background:#4f46e5;color:#ffffff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px">View Full Dashboard &rarr;</a></td></tr>' if dashboard_url else ""
 
     return f"""<!DOCTYPE html><html><head><meta charset="UTF-8"></head>
