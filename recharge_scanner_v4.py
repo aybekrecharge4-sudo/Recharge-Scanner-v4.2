@@ -670,12 +670,29 @@ class SitemapFetcher:
         for name, base_url in SITEMAP_COMPETITORS.items():
             try:
                 domain = urlparse(base_url).netloc
-                sitemap_urls = [
+                # Step 1: Try robots.txt first to discover sitemaps
+                sitemap_urls = []
+                try:
+                    r_robots = GET(f"https://{domain}/robots.txt", timeout=8)
+                    if r_robots:
+                        for line in r_robots.text.splitlines():
+                            if line.lower().startswith("sitemap:"):
+                                sm_url = line.split(":",1)[1].strip()
+                                if sm_url and sm_url not in sitemap_urls:
+                                    sitemap_urls.append(sm_url)
+                except: pass
+                # Step 2: Add common sitemap URL patterns as fallback
+                sitemap_urls.extend([
                     f"https://{domain}/sitemap.xml",
                     f"https://{domain}/sitemap_index.xml",
                     f"https://{domain}/sitemap-pages.xml",
                     f"https://{domain}/page-sitemap.xml",
-                ]
+                    f"https://{domain}/post-sitemap.xml",
+                    f"https://{domain}/wp-sitemap.xml",
+                    f"https://{domain}/sitemap1.xml",
+                ])
+                # Deduplicate
+                sitemap_urls = list(dict.fromkeys(sitemap_urls))
                 found_urls = []
                 for sm_url in sitemap_urls:
                     try:
@@ -697,6 +714,7 @@ class SitemapFetcher:
                             found_urls.extend(self._parse_urlset(r.content, ns, cutoff))
                         if found_urls: break
                     except: continue
+                log.info(f"Sitemap {name}: {len(found_urls)} new pages")
                 for page_url, lastmod in found_urls[:20]:
                     path = urlparse(page_url).path.strip("/")
                     page_title = path.split("/")[-1].replace("-"," ").replace("_"," ").title() if path else page_url
@@ -707,7 +725,7 @@ class SitemapFetcher:
                 time.sleep(0.5)
             except Exception as e:
                 log.warning(f"Sitemap {name}: {e}")
-        log.info(f"Sitemaps: {len(out)}"); return out
+        log.info(f"Sitemaps total: {len(out)}"); return out
 
     def _parse_urlset(self, content, ns, cutoff):
         results = []
@@ -716,8 +734,11 @@ class SitemapFetcher:
             for url_el in root.findall("s:url", ns):
                 loc = url_el.find("s:loc", ns)
                 mod = url_el.find("s:lastmod", ns)
-                if loc is None or mod is None: continue
+                if loc is None: continue
                 loc_text = loc.text.strip() if loc.text else ""
+                if mod is None:
+                    # No lastmod — can't filter by date, skip
+                    continue
                 mod_text = mod.text.strip()[:10] if mod.text else ""
                 try:
                     mod_date = datetime.strptime(mod_text, "%Y-%m-%d")
@@ -855,29 +876,57 @@ Be specific with dates and facts. Skip topics with no recent developments."""
     if result: print(f"  Got real-time intel ({len(result.get('sources',[]))} sources)"); return result
     print("  Grounding unavailable"); return {"text":"","sources":[]}
 
-def pass1(cands, events, ground_intel):
+def pass1(cands, events, ground_intel, all_sig=None):
     print("AI PASS 1: Prioritize...")
-    ct = "\n".join(f"{i+1}. [{c.score}] {c.title} (sources={c.sources}, cat={c.category})" for i,c in enumerate(cands[:30]))
+    all_sig = all_sig or {}
+
+    # Split signals into TRENDING (time-sensitive) vs MARKET (static background data)
+    TRENDING_SOURCES = {"news","reddit","youtube","trends"}
+    trending_titles = []
+    for src in TRENDING_SOURCES:
+        for s in all_sig.get(src,[]):
+            trending_titles.append(f"- [{s.source.upper()}] {s.title} | {s.desc}")
+    # Deduplicate trending titles
+    seen_t = set()
+    unique_trending = []
+    for t in trending_titles:
+        k = re.sub(r'[^a-z0-9]','',t[:60].lower())
+        if k not in seen_t: seen_t.add(k); unique_trending.append(t)
+
+    trending_text = "\n".join(unique_trending[:80]) if unique_trending else "No trending signals this run."
+    market_text = "\n".join(f"{i+1}. [{c.score}] {c.title} (sources={c.sources}, cat={c.category})" for i,c in enumerate(cands[:20]))
     et = "\n".join(f"- {e['name']} ({e['category']}): {e['status']} - {e['description']}" for e in events[:15])
     intel = ground_intel.get("text","")[:2000]
+
     prompt = f"""You are a senior growth strategist at Recharge.com (gaming gift cards, streaming subscriptions, digital credits).
 TODAY: {NOW.strftime('%B %d, %Y')}
-REAL-TIME INTELLIGENCE: {intel if intel else "Not available"}
-EVENTS (next 60 days): {et}
-SCORED CANDIDATES (16 sources, composite scored): {ct}
 
-Pick TOP 15 highest-impact opportunities.
+=== SECTION A: THIS WEEK'S TRENDING NEWS (from RSS, Reddit, YouTube, Google Trends) ===
+These are REAL headlines and posts from the past 7 days:
+{trending_text}
 
-RULES:
-1. ONLY pick topics that have ACTUAL NEWS this week (new game update, new season launch, new event, price drop, new release, trending controversy, viral moment).
-2. NEVER pick generic evergreen topics like "Roblox" or "Fortnite" without a specific THIS-WEEK event.
-3. Every opportunity must answer "what happened THIS WEEK that makes this urgent?"
-4. Use EXACT candidate titles from the list above. Do NOT rephrase them.
-5. Spread across categories. Each must drive gift card / digital credit purchases.
+=== SECTION B: REAL-TIME INTELLIGENCE (Google Search, verified today) ===
+{intel if intel else "Not available"}
+
+=== SECTION C: UPCOMING EVENTS ===
+{et}
+
+=== SECTION D: MARKET DATA (background, always-popular games/services) ===
+{market_text}
+
+YOUR TASK: Pick TOP 15 opportunities for Recharge.com to act on THIS WEEK.
+
+CRITICAL RULES:
+1. AT LEAST 10 of your 15 picks MUST come from Section A (trending news) or Section C (events). These are things actually happening NOW.
+2. At most 5 picks can come from Section D (market data), and ONLY if they have a specific time-sensitive angle (sale ending, new update, seasonal event).
+3. NEVER pick a generic topic like "Roblox" or "Fortnite" unless there is a specific news headline about it in Section A.
+4. Every pick MUST answer: "What happened THIS WEEK?" — if you can't answer that, don't include it.
+5. Use EXACT titles from the sections above. Do NOT rephrase or invent titles.
+6. Spread across categories.
 
 Return JSON: {{"opportunities": [
-  {{"title": "...", "category": "...", "urgency": "critical|high|medium",
-    "confidence": 0.0-1.0, "why_now": "specific event/news THIS WEEK", "revenue_signal": "how this drives purchases, 1 sentence"}}
+  {{"title": "exact title from sections above", "category": "...", "urgency": "critical|high|medium",
+    "confidence": 0.0-1.0, "why_now": "what happened THIS WEEK", "revenue_signal": "how this drives gift card purchases"}}
 ]}}"""
     r = _gemini_json(prompt)
     if r and "opportunities" in r: print(f"  {len(r['opportunities'])} opportunities"); return r["opportunities"]
@@ -923,10 +972,10 @@ IMPORTANT: Each action must be a plain STRING like "SEO Team: Update landing pag
             "Content team: update landing pages","Marketing team: monitor competitors"],
             "predictions":["Watch for major updates"],"risks":["Competitor pricing"]}
 
-def run_ai(cands, events, comp_sigs):
+def run_ai(cands, events, comp_sigs, all_sig=None):
     print("\n" + "="*60); print("4-PASS AI ANALYSIS (with Google Search grounding)"); print("="*60)
     ground = pass0_ground(cands, events)
-    opps = pass1(cands, events, ground)
+    opps = pass1(cands, events, ground, all_sig or {})
     briefs = pass2(opps, comp_sigs)
     ex = pass3(opps, briefs, ground)
     return {"opportunities":opps,"briefs":briefs,"executive":ex,"ground_intel":ground}
@@ -1048,21 +1097,26 @@ def build_html(cands, ai, events, all_sig):
     pred_html = "".join(f"<li>{esc(p)}</li>" for p in ex.get("predictions",[]))
     risk_html = "".join(f"<li>{esc(r)}</li>" for r in ex.get("risks",[]))
 
-    # Build competitor new pages table from sitemap signals
+    # Build per-competitor sitemap sections
     sitemap_sigs = all_sig.get("sitemap",[])
     sitemap_by_comp = defaultdict(list)
     for s in sitemap_sigs:
         sitemap_by_comp[s.meta.get("comp","?")].append(s)
-    sitemap_rows = ""
-    for comp_name in sorted(sitemap_by_comp.keys()):
-        for s in sitemap_by_comp[comp_name][:10]:
-            page_title = s.title.replace(f"{comp_name}: ","",1)
-            lastmod = s.meta.get("lastmod","")
-            sitemap_rows += f"""<tr><td><strong>{esc(comp_name)}</strong></td>
-<td class="opp-title"><a href="{esc(s.url)}" target="_blank" rel="noopener">{esc(page_title[:60])}</a></td>
-<td>{esc(lastmod)}</td></tr>"""
-    sitemap_html = f"""<table><thead><tr><th>Competitor</th><th>New/Updated Page</th><th>Date</th></tr></thead>
-<tbody>{sitemap_rows}</tbody></table>""" if sitemap_rows else '<p class="t2">No new competitor pages found this week.</p>'
+    sitemap_html = ""
+    for comp_name in SITEMAP_COMPETITORS:
+        pages = sitemap_by_comp.get(comp_name,[])
+        if pages:
+            rows = ""
+            for s in pages[:10]:
+                page_title = s.title.replace(f"{comp_name}: ","",1)
+                lastmod = s.meta.get("lastmod","")
+                rows += f"""<tr><td class="opp-title"><a href="{esc(s.url)}" target="_blank" rel="noopener">{esc(page_title[:60])}</a></td><td>{esc(lastmod)}</td></tr>"""
+            sitemap_html += f"""<h3 style="margin-top:14px">{esc(comp_name)} <span class="badge urg-high">{len(pages)} new</span></h3>
+<table><thead><tr><th>New/Updated Page</th><th>Date</th></tr></thead><tbody>{rows}</tbody></table>"""
+        else:
+            sitemap_html += f"""<h3 style="margin-top:14px">{esc(comp_name)} <span class="t2" style="font-weight:normal;font-size:11px">&mdash; no new pages</span></h3>"""
+    if not sitemap_html:
+        sitemap_html = '<p class="t2">No competitor sitemaps checked.</p>'
 
     html = f"""<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Recharge.com Opportunity Scanner</title>
@@ -1315,21 +1369,33 @@ def build_email_html(cands, ai, events, all_sig, dashboard_url=""):
 </table></td></tr></table></body></html>"""
 
 def send_email(html_body, subject=None):
-    to_addr = os.environ.get("EMAIL_TO",""); from_addr = os.environ.get("EMAIL_FROM","")
-    smtp_host = os.environ.get("SMTP_HOST","smtp.gmail.com"); smtp_port = int(os.environ.get("SMTP_PORT","587"))
-    smtp_user = os.environ.get("SMTP_USER",""); smtp_pass = os.environ.get("SMTP_PASS","")
+    to_addr = os.environ.get("EMAIL_TO","").strip()
+    from_addr = os.environ.get("EMAIL_FROM","").strip()
+    smtp_host = os.environ.get("SMTP_HOST","smtp.gmail.com").strip()
+    smtp_port = int(os.environ.get("SMTP_PORT","587").strip())
+    smtp_user = os.environ.get("SMTP_USER","").strip()
+    smtp_pass = os.environ.get("SMTP_PASS","").strip().replace(" ","")  # Gmail app passwords: strip spaces
     missing = [n for n,v in [("EMAIL_TO",to_addr),("EMAIL_FROM",from_addr),("SMTP_USER",smtp_user),("SMTP_PASS",smtp_pass)] if not v]
-    if missing: print(f"EMAIL SEND... skipped (missing secrets: {', '.join(missing)})"); return False
+    if missing:
+        print(f"EMAIL SEND... skipped (missing secrets: {', '.join(missing)})"); sys.stdout.flush()
+        return False
+    print(f"EMAIL SEND... connecting to {smtp_host}:{smtp_port} as {smtp_user}"); sys.stdout.flush()
     import smtplib; from email.mime.multipart import MIMEMultipart; from email.mime.text import MIMEText
     if not subject: subject = f"Recharge.com Scanner | {DATE} | Weekly Opportunity Report"
     msg = MIMEMultipart('alternative'); msg['Subject'] = subject; msg['From'] = from_addr; msg['To'] = to_addr
     msg.attach(MIMEText(html_body,'html'))
     try:
-        with smtplib.SMTP(smtp_host,smtp_port) as server:
-            server.starttls(); server.login(smtp_user,smtp_pass)
-            server.sendmail(from_addr,[a.strip() for a in to_addr.split(",")],msg.as_string())
-        print(f"EMAIL SEND... OK -> {to_addr}"); return True
-    except Exception as e: print(f"EMAIL SEND... failed: {e}"); return False
+        with smtplib.SMTP(smtp_host,smtp_port,timeout=30) as server:
+            server.ehlo()
+            server.starttls()
+            server.ehlo()
+            server.login(smtp_user,smtp_pass)
+            recipients = [a.strip() for a in to_addr.split(",")]
+            server.sendmail(from_addr, recipients, msg.as_string())
+        print(f"EMAIL SEND... OK -> {to_addr}"); sys.stdout.flush(); return True
+    except Exception as e:
+        print(f"EMAIL SEND... FAILED: {type(e).__name__}: {e}"); sys.stdout.flush()
+        return False
 
 # =============================================================================
 # SECTION 13 - EVENTS CALENDAR
@@ -1484,7 +1550,7 @@ def main():
     events = get_events(); print(f"Events: {len(events)}"); sys.stdout.flush()
     all_sig = fetch_all()
     cands = comp_score(dedup(all_sig))
-    ai = run_ai(cands, events, all_sig.get("competitor",[])); sys.stdout.flush()
+    ai = run_ai(cands, events, all_sig.get("competitor",[]), all_sig); sys.stdout.flush()
     sheets_url = write_sheets(cands, ai, events); sys.stdout.flush()
 
     print("\n[STEP] Building HTML..."); sys.stdout.flush()
