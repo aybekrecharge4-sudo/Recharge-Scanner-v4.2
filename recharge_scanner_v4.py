@@ -25,6 +25,7 @@ log = logging.getLogger("v4")
 
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "")
 DASHBOARD_URL = os.environ.get("DASHBOARD_URL", "")
+DASH_PASSWORD = os.environ.get("DASH_PASSWORD", "")  # if set, dashboard requires password
 
 NOW  = datetime.now()
 YEAR = NOW.year
@@ -1057,6 +1058,45 @@ new Chart(document.getElementById('catChart'),{{type:'bar',
 data:{{labels:{cat_labels},datasets:[{{data:{cat_values},backgroundColor:'#818cf8',borderRadius:5,borderSkipped:false}}]}},
 options:{{responsive:true,plugins:{{legend:{{display:false}}}},scales:{{x:{{grid:{{display:false}},ticks:{{font:{{size:10}},maxRotation:45}}}},y:{{grid:{{display:false}}}}}}}}}});
 </script></body></html>"""
+    # ---- password protection wrapper ----
+    if DASH_PASSWORD:
+        import hashlib, base64
+        pw_hash = hashlib.sha256(DASH_PASSWORD.encode()).hexdigest()
+        # XOR-encrypt the HTML with the password so content isn't in page source
+        pw_bytes = DASH_PASSWORD.encode()
+        html_bytes = html.encode("utf-8")
+        encrypted = bytes(b ^ pw_bytes[i % len(pw_bytes)] for i, b in enumerate(html_bytes))
+        enc_b64 = base64.b64encode(encrypted).decode()
+        html = f"""<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Recharge.com Dashboard - Login</title>
+<style>
+*{{margin:0;padding:0;box-sizing:border-box}}
+body{{background:#0b0d11;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#e2e4ea;display:flex;align-items:center;justify-content:center;min-height:100vh}}
+.login-box{{background:#13161f;border:1px solid #242938;border-radius:16px;padding:40px;width:380px;text-align:center}}
+.login-box h1{{font-size:20px;margin-bottom:6px}}.login-box h1 span{{color:#818cf8}}
+.login-box p{{color:#7c819a;font-size:13px;margin-bottom:24px}}
+.pw-input{{width:100%;padding:12px 16px;background:#0b0d11;border:1px solid #242938;border-radius:8px;color:#e2e4ea;font-size:14px;margin-bottom:12px;outline:none}}
+.pw-input:focus{{border-color:#818cf8}}
+.pw-btn{{width:100%;padding:12px;background:#818cf8;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer}}
+.pw-btn:hover{{background:#6366f1}}
+.pw-err{{color:#f87171;font-size:12px;margin-top:8px;display:none}}
+</style></head><body>
+<div class="login-box" id="loginBox">
+<h1><span>Recharge.com</span> Scanner</h1>
+<p>Enter password to view the dashboard</p>
+<input type="password" class="pw-input" id="pwInput" placeholder="Password" onkeydown="if(event.key==='Enter')unlock()">
+<button class="pw-btn" onclick="unlock()">Unlock Dashboard</button>
+<div class="pw-err" id="pwErr">Incorrect password</div>
+</div>
+<script>
+const H="{pw_hash}",D="{enc_b64}";
+async function sha256(s){{const e=new TextEncoder().encode(s);const h=await crypto.subtle.digest('SHA-256',e);return Array.from(new Uint8Array(h)).map(b=>b.toString(16).padStart(2,'0')).join('')}}
+async function unlock(){{const pw=document.getElementById('pwInput').value;const h=await sha256(pw);if(h!==H){{document.getElementById('pwErr').style.display='block';return}}
+const enc=Uint8Array.from(atob(D),c=>c.charCodeAt(0));const pwB=new TextEncoder().encode(pw);const dec=new Uint8Array(enc.length);for(let i=0;i<enc.length;i++)dec[i]=enc[i]^pwB[i%pwB.length];
+document.open();document.write(new TextDecoder().decode(dec));document.close()}}
+</script></body></html>"""
+
     fname = f"recharge_dashboard_{DATE}.html"
     with open(fname,"w",encoding="utf-8") as f: f.write(html)
     with open("index.html","w",encoding="utf-8") as f: f.write(html)
@@ -1334,22 +1374,51 @@ def get_events():
 def main():
     t0 = time.time()
     print("="*60); print("  RECHARGE.COM OPPORTUNITY SCANNER v4.2"); print(f"  {DATE} {TIME}"); print("="*60)
-    events = get_events(); print(f"Events: {len(events)}")
+    sys.stdout.flush()
+    events = get_events(); print(f"Events: {len(events)}"); sys.stdout.flush()
     all_sig = fetch_all()
     cands = comp_score(dedup(all_sig))
-    ai = run_ai(cands, events, all_sig.get("competitor",[]))
-    sheets_url = write_sheets(cands, ai, events)
-    html_file = build_html(cands, ai, events, all_sig)
-    docx_file = build_docx(cands, ai, events, all_sig)
-    email_html = build_email_html(cands, ai, events, all_sig, DASHBOARD_URL)
-    email_file = f"recharge_email_{DATE}.html"
-    with open(email_file,"w",encoding="utf-8") as f: f.write(email_html)
-    print(f"\nEMAIL HTML... OK -> {email_file}")
-    send_email(email_html)
+    ai = run_ai(cands, events, all_sig.get("competitor",[])); sys.stdout.flush()
+    sheets_url = write_sheets(cands, ai, events); sys.stdout.flush()
+
+    print("\n[STEP] Building HTML..."); sys.stdout.flush()
+    try:
+        html_file = build_html(cands, ai, events, all_sig)
+        print(f"[STEP] HTML done: {html_file}"); sys.stdout.flush()
+    except Exception as e:
+        print(f"[ERROR] build_html failed: {type(e).__name__}: {e}"); sys.stdout.flush()
+        import traceback; traceback.print_exc(); sys.stdout.flush()
+        html_file = "index.html"
+        with open(html_file,"w") as f: f.write("<h1>Scanner ran but HTML build failed</h1>")
+
+    print("[STEP] Building Word doc..."); sys.stdout.flush()
+    try:
+        docx_file = build_docx(cands, ai, events, all_sig)
+        print(f"[STEP] Word done: {docx_file}"); sys.stdout.flush()
+    except Exception as e:
+        print(f"[ERROR] build_docx failed: {type(e).__name__}: {e}"); sys.stdout.flush()
+        docx_file = "none"
+
+    print("[STEP] Building email..."); sys.stdout.flush()
+    try:
+        email_html = build_email_html(cands, ai, events, all_sig, DASHBOARD_URL)
+        email_file = f"recharge_email_{DATE}.html"
+        with open(email_file,"w",encoding="utf-8") as f: f.write(email_html)
+        print(f"[STEP] Email HTML done: {email_file}"); sys.stdout.flush()
+    except Exception as e:
+        print(f"[ERROR] build_email_html failed: {type(e).__name__}: {e}"); sys.stdout.flush()
+        email_html = ""; email_file = "none"
+
+    print("[STEP] Sending email..."); sys.stdout.flush()
+    try:
+        send_email(email_html)
+    except Exception as e:
+        print(f"[ERROR] send_email failed: {type(e).__name__}: {e}"); sys.stdout.flush()
+
     elapsed = time.time()-t0; ex = ai.get("executive",{}); n_sources = len([k for k,v in all_sig.items() if len(v)>0])
     print("\n" + "="*60)
     print(f"  DONE in {elapsed:.0f}s | {n_sources} sources active")
-    print(f"  HTML:  {html_file} + index.html")
+    print(f"  HTML:  {html_file}")
     print(f"  Email: {email_file}")
     print(f"  Word:  {docx_file}")
     if sheets_url: print(f"  Sheet: {sheets_url}")
@@ -1357,10 +1426,16 @@ def main():
     print(f"\n{ex.get('summary','')}")
     print("\nActions:")
     for i,a in enumerate(ex.get("actions",[]),1): print(f"  {i}. {a}")
+    sys.stdout.flush()
     return html_file, docx_file
 
 if __name__ == "__main__":
-    html_f, docx_f = main()
+    try:
+        html_f, docx_f = main()
+    except Exception as e:
+        print(f"\n[FATAL] {type(e).__name__}: {e}"); sys.stdout.flush()
+        import traceback; traceback.print_exc()
+        sys.exit(1)
     if IS_COLAB:
         try:
             from google.colab import files; files.download(html_f); files.download(docx_f)
