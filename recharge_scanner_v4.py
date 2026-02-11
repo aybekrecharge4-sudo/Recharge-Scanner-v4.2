@@ -158,32 +158,33 @@ TREND_BATCHES = [
     ["Crunchyroll","anime 2026","Monster Hunter Wilds","Elden Ring","Destiny 2"],
 ]
 
-NEWS_TOPICS = [
+# Auto-generate news topics from every KW category + extras
+_AUTO_TOPICS = []
+for _cat, _kws in KW.items():
+    _AUTO_TOPICS.append(f"{_cat} update")
+    _AUTO_TOPICS.append(f"{_cat} news")
+    if _kws: _AUTO_TOPICS.append(f"{_kws[0]} event")
+
+NEWS_TOPICS = list(dict.fromkeys(_AUTO_TOPICS + [
     "EA FC 26 TOTY","EA FC 26 promo","EA FC 26 Future Stars",
     f"PlayStation Plus {MON} {YEAR}","PS Plus free games",
-    "PlayStation State of Play","PS5 deals","PS5 Pro",
-    f"Xbox Game Pass {MON} {YEAR}","Game Pass new games","Xbox Developer Direct",
-    "Nintendo Direct","Nintendo Switch 2","Nintendo eShop sale",
-    "Steam sale","Steam Deck","Steam Next Fest","Steam Fest",
-    "Fortnite update","Fortnite new season","Fortnite event",
-    "GTA 6","GTA Online update","GTA 6 release date",
-    "Call of Duty update","Warzone new season","COD 2026",
-    "Minecraft update","Roblox update","Roblox creator",
-    "Genshin Impact update","Genshin new banner","Genshin 6.4",
-    "Honkai Star Rail update","Valorant update","Valorant new agent",
-    "League of Legends update","PUBG Mobile update",
-    "Free Fire update","Apex Legends update",
-    "Spotify Premium","Netflix new release","Netflix games",
-    "Disney Plus new","YouTube Premium","Crunchyroll new anime",
-    "gift card deals","gaming gift card",
-    "game release date","gaming event","esports tournament",
-    "Epic Games free","Discord Nitro","Discord update",
-    "Mobile Legends update","Pokemon GO update",
+    "PlayStation State of Play","PS5 Pro",
+    f"Xbox Game Pass {MON} {YEAR}","Xbox Developer Direct",
+    "Nintendo Direct","Nintendo Switch 2",
+    "Fortnite new season","GTA 6","GTA 6 release date",
+    "Call of Duty new season","Warzone new season",
+    "Genshin Impact new banner","Honkai Star Rail update",
+    "Overwatch 2 event","Overwatch 2 season",
+    "Diablo 4 season","Hearthstone expansion",
+    "gaming gift card deals","game release date",
+    "esports tournament","Epic Games free",
+    "anime new season","One Piece","Dragon Ball",
     "Monster Hunter Wilds","Elden Ring DLC",
-    "anime new season","One Piece","Dragon Ball","Demon Slayer",
     "GOG sale","Humble Bundle","free game giveaway",
-    "Meta Quest","VR game","Apple Arcade",
-]
+    "new game release this week","gaming news today",
+    "biggest game releases this month","trending games",
+    "game awards","gaming event this week",
+]))
 
 # =============================================================================
 # SECTION 1 - DEPENDENCIES
@@ -469,7 +470,10 @@ class NewsFetcher:
                     seen.add(k)
                     if not mass_appeal(t) or not recent(e.get("published",e.get("updated","")),7): continue
                     cc = cats(t)
-                    if cc: out.append(Signal("news",t[:150],f"via {fn}",url=e.get("link",""),score=65,meta={"src":fn,"cats":cc}))
+                    if cc:
+                        out.append(Signal("news",t[:150],f"via {fn}",url=e.get("link",""),score=65,meta={"src":fn,"cats":cc}))
+                    elif fn in ("IGN","GameSpot","Kotaku","PC Gamer","Eurogamer","Polygon","GamesRadar","Dexerto","VG247"):
+                        out.append(Signal("news",t[:150],f"via {fn}",url=e.get("link",""),score=45,meta={"src":fn,"cats":["General"]}))
                 time.sleep(0.05)
             except: continue
         log.info(f"News: {len(out)}"); return out
@@ -964,7 +968,6 @@ def build_html(cands, ai, events, all_sig):
         sources_html = '<div class="ground-sources"><h4>Verified Sources</h4><ul>' + "".join(
             f'<li><a href="{esc(gs.get("url",""))}" target="_blank">{esc(gs.get("title","Source"))}</a></li>' for gs in g_sources[:8]) + '</ul></div>'
 
-    actions_html = "".join(f'<li class="action-item">{_fmt_action(a)}</li>' for a in ex.get("actions",[]))
     pred_html = "".join(f"<li>{esc(p)}</li>" for p in ex.get("predictions",[]))
     risk_html = "".join(f"<li>{esc(r)}</li>" for r in ex.get("risks",[]))
 
@@ -1038,7 +1041,7 @@ td{{padding:9px 10px;border-bottom:1px solid var(--border)}}tr:hover{{background
 <div class="kpi"><div class="lb">High Priority</div><div class="vl amber">{urg_high}</div></div>
 </div>
 <div class="card"><h2>Executive Summary</h2><p class="summary-text">{esc(ex.get('summary',''))}</p>
-<h3>Immediate Actions</h3><ol>{actions_html}</ol>{sources_html}</div>
+{sources_html}</div>
 <div class="chart-row chart-hero"><div class="chart-box"><h3>Top Opportunities by Composite Score</h3>
 <div class="chart-container"><canvas id="scoreChart"></canvas></div></div></div>
 <div class="chart-row chart-pair">
@@ -1131,11 +1134,6 @@ def build_docx(cands, ai, events, all_sig):
     p = doc.add_paragraph(); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     r = p.add_run(f"{DATE} {TIME} | {n_sources} sources | 4-pass AI"); r.font.color.rgb = RGBColor(128,128,128); r.font.size = Pt(10)
     doc.add_heading("Executive Summary",level=1); doc.add_paragraph(ex.get("summary",""))
-    doc.add_heading("Immediate Actions",level=1)
-    for i,a in enumerate(ex.get("actions",[]),1):
-        p = doc.add_paragraph(); p.add_run(f"{i}. ").bold = True
-        if isinstance(a,dict): p.add_run(f"{a.get('owner','')}: {a.get('action','')} ({a.get('due','')})")
-        else: p.add_run(str(a))
     doc.add_heading("Top Opportunities",level=1)
     tbl = doc.add_table(rows=1,cols=7); tbl.style = "Table Grid"
     for i,h in enumerate(["#","Opportunity","Category","Score","Src","Urgency","Revenue Signal"]):
@@ -1198,7 +1196,6 @@ def build_email_html(cands, ai, events, all_sig, dashboard_url=""):
 <td style="padding:10px 8px;border-bottom:1px solid #e5e7eb;text-align:center"><span style="background:{urg_bg};color:{urg_color};padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600;text-transform:uppercase">{urg}</span></td>
 <td style="padding:10px 8px;border-bottom:1px solid #e5e7eb;color:#6b7280;font-size:12px">{esc(o.get("revenue_signal",""))[:55]}</td>
 <td style="padding:10px 8px;border-bottom:1px solid #e5e7eb">{src_td}</td></tr>"""
-    actions_html = "".join(f'<li style="padding:5px 0;font-size:14px;color:#1f2937">{_fmt_action(a)}</li>' for a in ex.get("actions",[]))
     dash_btn = f'<tr><td style="padding:24px 32px;text-align:center"><a href="{esc(dashboard_url)}" style="display:inline-block;background:#4f46e5;color:#ffffff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px">View Full Dashboard &rarr;</a></td></tr>' if dashboard_url else ""
 
     return f"""<!DOCTYPE html><html><head><meta charset="UTF-8"></head>
@@ -1209,8 +1206,6 @@ def build_email_html(cands, ai, events, all_sig, dashboard_url=""):
 <p style="margin:8px 0 0;color:#a5b4fc;font-size:12px">{DATE} | {n_sources} sources | {total_sig} signals</p></td></tr>
 <tr><td style="padding:28px 32px"><h2 style="margin:0 0 12px;font-size:16px;color:#1f2937">Executive Summary</h2>
 <p style="margin:0;font-size:15px;line-height:1.7;color:#374151">{esc(ex.get("summary",""))}</p></td></tr>
-<tr><td style="padding:0 32px 24px"><h2 style="margin:0 0 10px;font-size:16px;color:#1f2937">This Week's Actions</h2>
-<ol style="margin:0;padding-left:20px">{actions_html}</ol></td></tr>
 <tr><td style="padding:0 32px 24px"><h2 style="margin:0 0 12px;font-size:16px;color:#1f2937">Top 10 Opportunities</h2>
 <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;font-size:13px">
 <tr style="background:#f9fafb"><th style="padding:10px 8px;text-align:center;font-size:10px;color:#6b7280;text-transform:uppercase;border-bottom:2px solid #e5e7eb">#</th>
@@ -1229,7 +1224,8 @@ def send_email(html_body, subject=None):
     to_addr = os.environ.get("EMAIL_TO",""); from_addr = os.environ.get("EMAIL_FROM","")
     smtp_host = os.environ.get("SMTP_HOST","smtp.gmail.com"); smtp_port = int(os.environ.get("SMTP_PORT","587"))
     smtp_user = os.environ.get("SMTP_USER",""); smtp_pass = os.environ.get("SMTP_PASS","")
-    if not all([to_addr,from_addr,smtp_user,smtp_pass]): print("EMAIL SEND... skipped (no SMTP config)"); return False
+    missing = [n for n,v in [("EMAIL_TO",to_addr),("EMAIL_FROM",from_addr),("SMTP_USER",smtp_user),("SMTP_PASS",smtp_pass)] if not v]
+    if missing: print(f"EMAIL SEND... skipped (missing secrets: {', '.join(missing)})"); return False
     import smtplib; from email.mime.multipart import MIMEMultipart; from email.mime.text import MIMEText
     if not subject: subject = f"Recharge.com Scanner | {DATE} | Weekly Opportunity Report"
     msg = MIMEMultipart('alternative'); msg['Subject'] = subject; msg['From'] = from_addr; msg['To'] = to_addr
