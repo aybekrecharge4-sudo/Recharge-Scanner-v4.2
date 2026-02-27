@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Recharge Scanner v5.0 — Data Collection Tree</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Inter:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0e1b1c;color:#c8d6d8;font-family:'JetBrains Mono','Fira Code',monospace;line-height:1.55;font-size:13px}
+.wrap{max-width:980px;margin:0 auto;padding:32px 24px 60px}
+pre{white-space:pre;overflow-x:auto;tab-size:2}
+
+/* Header */
+.hero{text-align:center;padding:30px 0 24px}
+.hero img{height:28px;filter:brightness(0) invert(1);margin-bottom:14px}
+.hero h1{font-family:'Inter',sans-serif;font-size:28px;font-weight:900;letter-spacing:-.03em;color:#f0f1f5}
+.hero h1 span{color:#67df88}
+
+/* Tree characters - the core styling */
+.tree{font-size:12.5px;line-height:1.65}
+
+/* Color classes */
+.c-green{color:#67df88}
+.c-blue{color:#60a5fa}
+.c-amber{color:#fbbf24}
+.c-purple{color:#c084fc}
+.c-pink{color:#f472b6}
+.c-red{color:#f87171}
+.c-cyan{color:#22d3ee}
+.c-orange{color:#fb923c}
+.c-dim{color:#5c7070}
+.c-mid{color:#8b9a9c}
+.c-bright{color:#f0f1f5}
+.c-accent{color:#67df88}
+
+/* Box drawing chars should be dimmed */
+.b{color:#2a5050}
+
+/* Section titles */
+.section-line{color:#67df88;font-weight:700}
+.tier-box{color:#356060;font-weight:600}
+.tier-label{color:#f0f1f5;font-weight:800}
+.phase-line{color:#67df88;font-weight:700}
+
+/* Weight badges */
+.w{color:#fbbf24;font-weight:600}
+.score{color:#60a5fa}
+.items{color:#c084fc}
+
+/* Source numbers */
+.src-num{color:#67df88;font-weight:800}
+
+/* URLs */
+.url{color:#5c7070}
+
+/* Boxes */
+.box{border:1px solid #2a4040;border-radius:8px;padding:16px 20px;margin:8px 0;background:#142222}
+.box-accent{border-color:#356060;background:linear-gradient(135deg,#142222,#192e2e)}
+.box-title{display:block;color:#67df88;font-weight:700;font-size:13px;margin-bottom:8px;font-family:'Inter',sans-serif}
+
+/* Phase dividers */
+.phase-divider{margin:28px 0 20px;padding:12px 0;border-top:2px solid #2a5050;border-bottom:2px solid #2a5050;text-align:center}
+.phase-divider h2{font-family:'Inter',sans-serif;font-size:16px;font-weight:800;color:#f0f1f5;letter-spacing:-.02em}
+.phase-divider h2 span{color:#67df88}
+.phase-divider p{font-size:11px;color:#5c7070;margin-top:2px}
+
+/* Tier headers */
+.tier-header{margin:20px 0 12px;padding:8px 16px;border:1px solid #2a5050;border-radius:6px;display:flex;justify-content:space-between;align-items:center}
+.tier-header.t1{border-color:rgba(103,223,136,.3);background:rgba(103,223,136,.04)}
+.tier-header.t2{border-color:rgba(96,165,250,.3);background:rgba(96,165,250,.04)}
+.tier-header.t3{border-color:rgba(251,191,36,.3);background:rgba(251,191,36,.04)}
+.tier-header h3{font-family:'Inter',sans-serif;font-size:13px;font-weight:800;color:#f0f1f5}
+.tier-header .tw{font-size:11px;font-weight:600}
+
+/* Flow arrow between phases */
+.flow{text-align:center;margin:16px 0;color:#67df88;font-size:16px}
+
+/* Processing boxes */
+.proc-box{border:1px solid #2a5050;border-radius:8px;padding:16px 20px;margin:10px 0;background:#142222;position:relative}
+.proc-box::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;border-radius:8px 8px 0 0}
+.proc-box.pb-green::before{background:#67df88}
+.proc-box.pb-blue::before{background:#60a5fa}
+.proc-box.pb-purple::before{background:#c084fc}
+.proc-box.pb-amber::before{background:#fbbf24}
+.proc-box h4{font-family:'Inter',sans-serif;font-size:13px;font-weight:800;color:#f0f1f5;margin-bottom:6px}
+.proc-box h4 span{font-weight:500;color:#5c7070;font-size:11px}
+
+/* Output grid */
+.output-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin:12px 0}
+.output-grid .out{border:1px solid #2a5050;border-radius:8px;padding:14px;background:#142222;text-align:center}
+.output-grid .out h5{font-family:'Inter',sans-serif;font-size:12px;font-weight:800;color:#f0f1f5;margin-bottom:4px}
+.output-grid .out .icon{font-size:24px;margin-bottom:6px}
+.output-grid .out p{font-size:10px;color:#5c7070}
+.output-bottom{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+.output-bottom .out{border:1px solid #2a5050;border-radius:8px;padding:14px;background:#142222;text-align:center}
+.output-bottom .out h5{font-family:'Inter',sans-serif;font-size:12px;font-weight:800;color:#f0f1f5;margin-bottom:4px}
+.output-bottom .out .icon{font-size:24px;margin-bottom:6px}
+.output-bottom .out p{font-size:10px;color:#5c7070}
+
+.footer{text-align:center;margin-top:40px;padding-top:20px;border-top:1px solid #2a4040;font-size:10px;color:#5c7070}
+
+@media(max-width:700px){
+  body{font-size:11px}
+  .tree{font-size:10.5px}
+  .output-grid{grid-template-columns:1fr}
+  .output-bottom{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="hero">
+  <img src="https://company.recharge.com/wp-content/uploads/2024/10/Recharge.com-Logo.svg" alt="Recharge.com" />
+  <h1>Data Collection <span>Tree</span></h1>
+</div>
+
+<pre class="tree">
+<span class="c-green">  RECHARGE.COM OPPORTUNITY SCANNER v5.0 — DATA COLLECTION TREE</span>
+<span class="b">  ═══════════════════════════════════════════════════════════════</span>
+
+<span class="b">                      ┌─────────────────────────────┐</span>
+<span class="b">                      │</span>   <span class="c-bright">RECHARGE SCANNER v5.0</span>     <span class="b">│</span>
+<span class="b">                      │</span>   <span class="c-green">16 Sources</span> · <span class="c-purple">4-Pass AI</span>    <span class="b">│</span>
+<span class="b">                      │</span>   <span class="c-amber">~800+ signals per run</span>     <span class="b">│</span>
+<span class="b">                      └──────────────┬──────────────┘</span>
+<span class="b">                                     │</span>
+<span class="b">            ┌────────────────────────┼────────────────────────┐</span>
+<span class="b">            │                        │                        │</span>
+<span class="b">      ┌─────┴─────┐          ┌──────┴──────┐          ┌──────┴──────┐</span>
+<span class="b">      │</span>  <span class="c-green">COLLECT</span>  <span class="b">│</span>          <span class="b">│</span>  <span class="c-purple">PROCESS</span>   <span class="b">│</span>          <span class="b">│</span>  <span class="c-pink">OUTPUT</span>    <span class="b">│</span>
+<span class="b">      │</span> <span class="c-dim">16 fetchers</span><span class="b">│</span>          <span class="b">│</span>  <span class="c-dim">Score/AI</span>  <span class="b">│</span>          <span class="b">│</span>  <span class="c-dim">4 formats</span> <span class="b">│</span>
+<span class="b">      │</span> <span class="c-dim">6 parallel</span> <span class="b">│</span>          <span class="b">│</span>  <span class="c-dim">4 passes</span>  <span class="b">│</span>          <span class="b">│</span>             <span class="b">│</span>
+<span class="b">      └─────┬─────┘          └──────┬──────┘          └──────┬──────┘</span>
+<span class="b">            │                       │                        │</span>
+<span class="b">            ▼                       ▼                        ▼</span>
+</pre>
+
+<!-- PHASE 1 -->
+<div class="phase-divider">
+  <h2>PHASE 1: <span>DATA COLLECTION</span></h2>
+  <p>6 concurrent workers &middot; 420 second timeout &middot; 16 fetcher classes</p>
+</div>
+
+<!-- TIER 1 -->
+<div class="tier-header t1">
+  <h3><span class="c-green">&#9632;</span> TIER 1 &mdash; REAL-TIME NEWS &amp; SOCIAL</h3>
+  <span class="tw c-green">weight: 0.50 total</span>
+</div>
+
+<pre class="tree">
+ <span class="src-num"> 1.</span> <span class="c-bright">NEWS RSS FEEDS</span>                                    <span class="w">weight: 0.12</span>
+ <span class="b">├──</span> <span class="c-mid">48 RSS feeds, 20 articles each, 7-day window</span>
+ <span class="b">├──</span> <span class="score">Score: 65 (keyword match) / 45 (major source fallback)</span>
+ <span class="b">│</span>
+ <span class="b">├──</span> <span class="c-green">GAMING (31 feeds)</span>
+ <span class="b">│   ├──</span> IGN <span class="b">────────────────</span> <span class="url">feeds.feedburner.com/ign/all</span>
+ <span class="b">│   ├──</span> GameSpot <span class="b">───────────</span> <span class="url">gamespot.com/feeds/news/</span>
+ <span class="b">│   ├──</span> Kotaku <span class="b">─────────────</span> <span class="url">kotaku.com/rss</span>
+ <span class="b">│   ├──</span> PC Gamer <span class="b">───────────</span> <span class="url">pcgamer.com/rss/</span>
+ <span class="b">│   ├──</span> Eurogamer <span class="b">──────────</span> <span class="url">eurogamer.net/feed</span>
+ <span class="b">│   ├──</span> The Verge <span class="b">──────────</span> <span class="url">theverge.com/rss/index.xml</span>
+ <span class="b">│   ├──</span> Polygon <span class="b">────────────</span> <span class="url">polygon.com/rss/index.xml</span>
+ <span class="b">│   ├──</span> GamesRadar <span class="b">─────────</span> <span class="url">gamesradar.com/rss/</span>
+ <span class="b">│   ├──</span> Dexerto <span class="b">────────────</span> <span class="url">dexerto.com/feed/</span>
+ <span class="b">│   ├──</span> Destructoid <span class="b">────────</span> <span class="url">destructoid.com/feed/</span>
+ <span class="b">│   ├──</span> VG247 <span class="b">──────────────</span> <span class="url">vg247.com/feed/all</span>
+ <span class="b">│   ├──</span> Rock Paper Shotgun <span class="b">─</span> <span class="url">rockpapershotgun.com/feed</span>
+ <span class="b">│   ├──</span> Push Square <span class="b">────────</span> <span class="url">pushsquare.com/feeds/latest</span>
+ <span class="b">│   ├──</span> Nintendo Life <span class="b">──────</span> <span class="url">nintendolife.com/feeds/latest</span>
+ <span class="b">│   ├──</span> Pure Xbox <span class="b">──────────</span> <span class="url">purexbox.com/feeds/latest</span>
+ <span class="b">│   ├──</span> Siliconera <span class="b">─────────</span> <span class="url">siliconera.com/feed/</span>
+ <span class="b">│   ├──</span> TouchArcade <span class="b">────────</span> <span class="url">toucharcade.com/feed/</span>
+ <span class="b">│   ├──</span> Xbox Wire <span class="b">──────────</span> <span class="url">news.xbox.com/en-us/feed/</span>
+ <span class="b">│   ├──</span> PlayStation Blog <span class="b">───</span> <span class="url">blog.playstation.com/feed/</span>
+ <span class="b">│   ├──</span> DualShockers <span class="b">───────</span> <span class="url">dualshockers.com/feed/video-game-news/</span>
+ <span class="b">│   ├──</span> GameRant <span class="b">───────────</span> <span class="url">gamerant.com/feed/</span>
+ <span class="b">│   ├──</span> GamesIndustry.biz <span class="b">──</span> <span class="url">gamesindustry.biz/feed</span>
+ <span class="b">│   ├──</span> Game Developer <span class="b">─────</span> <span class="url">gamedeveloper.com/rss.xml</span>
+ <span class="b">│   ├──</span> Game Informer <span class="b">──────</span> <span class="url">gameinformer.com/news.xml</span>
+ <span class="b">│   ├──</span> Screen Rant <span class="b">────────</span> <span class="url">screenrant.com/feed/</span>
+ <span class="b">│   ├──</span> Tom's Hardware <span class="b">─────</span> <span class="url">tomshardware.com/feeds/all</span>
+ <span class="b">│   ├──</span> NME Gaming <span class="b">─────────</span> <span class="url">nme.com/gaming/feed</span>
+ <span class="b">│   ├──</span> VGC <span class="b">────────────────</span> <span class="url">videogameschronicle.com/category/news/feed/</span>
+ <span class="b">│   ├──</span> PCGamesN <span class="b">───────────</span> <span class="url">pcgamesn.com/mainrss.xml</span>
+ <span class="b">│   ├──</span> GameGeekNews <span class="b">───────</span> <span class="url">gamegeeksnews.com/feed/</span>
+ <span class="b">│   └──</span> EveryoneGaming <span class="b">─────</span> <span class="url">everyonegaming.com/news/feed/</span>
+ <span class="b">│</span>
+ <span class="b">├──</span> <span class="c-pink">STREAMING &amp; ENTERTAINMENT (10 feeds)</span>
+ <span class="b">│   ├──</span> What's On Netflix <span class="b">──</span> <span class="url">whats-on-netflix.com/feed/</span>
+ <span class="b">│   ├──</span> Decider <span class="b">────────────</span> <span class="url">decider.com/feed/</span>
+ <span class="b">│   ├──</span> The Streamable <span class="b">─────</span> <span class="url">thestreamable.com/feed</span>
+ <span class="b">│   ├──</span> Collider <span class="b">───────────</span> <span class="url">collider.com/feed/</span>
+ <span class="b">│   ├──</span> Deadline TV <span class="b">────────</span> <span class="url">deadline.com/v/tv/feed/</span>
+ <span class="b">│   ├──</span> CinemaBlend <span class="b">────────</span> <span class="url">cinemablend.com/rss</span>
+ <span class="b">│   ├──</span> ComingSoon <span class="b">─────────</span> <span class="url">comingsoon.net/feed</span>
+ <span class="b">│   ├──</span> Digital Spy <span class="b">────────</span> <span class="url">digitalspy.com/rss/tv.xml</span>
+ <span class="b">│   ├──</span> Ready Steady Cut <span class="b">───</span> <span class="url">readysteadycut.com/feed/</span>
+ <span class="b">│   └──</span> Moviefone <span class="b">──────────</span> <span class="url">moviefone.com/feed/</span>
+ <span class="b">│</span>
+ <span class="b">├──</span> <span class="c-blue">PAYMENTS (3 feeds)</span>
+ <span class="b">│   ├──</span> PYMNTS <span class="b">─────────────</span> <span class="url">pymnts.com/feed/</span>
+ <span class="b">│   ├──</span> Finextra <span class="b">───────────</span> <span class="url">finextra.com/rss/headlines.aspx</span>
+ <span class="b">│   └──</span> Payment Journal <span class="b">────</span> <span class="url">paymentjournal.com/feed/</span>
+ <span class="b">│</span>
+ <span class="b">├──</span> <span class="c-cyan">MOBILE (2 feeds)</span>
+ <span class="b">│   ├──</span> GSMArena <span class="b">───────────</span> <span class="url">gsmarena.com/rss-news-reviews.php3</span>
+ <span class="b">│   └──</span> PhoneArena <span class="b">─────────</span> <span class="url">phonearena.com/feed</span>
+ <span class="b">│</span>
+ <span class="b">└──</span> <span class="c-orange">DEALS (2 feeds)</span>
+ <span class="b">    ├──</span> Slickdeals <span class="b">─────────</span> <span class="url">slickdeals.net/...rss=1</span>
+ <span class="b">    └──</span> DealNews <span class="b">───────────</span> <span class="url">dealnews.com/rss/</span>
+
+
+ <span class="src-num"> 2.</span> <span class="c-bright">OXYLABS GOOGLE NEWS</span>                               <span class="w">weight: 0.16</span>
+ <span class="b">├──</span> <span class="c-mid">62 queries via realtime.oxylabs.io/v1/queries (POST)</span>
+ <span class="b">├──</span> <span class="c-mid">Auth: OXYLABS_USER + OXYLABS_PASS</span>
+ <span class="b">├──</span> <span class="score">Last 24 hours, 10 results/query, score: 80-90</span>
+ <span class="b">│</span>
+ <span class="b">├──</span> <span class="c-green">GMG QUERIES (16)</span>
+ <span class="b">│   ├──</span> "gaming news today"          <span class="b">├──</span> "Fortnite update"
+ <span class="b">│   ├──</span> "PlayStation news"           <span class="b">├──</span> "GTA 6 news"
+ <span class="b">│   ├──</span> "Xbox Game Pass news"        <span class="b">├──</span> "Call of Duty news"
+ <span class="b">│   ├──</span> "Nintendo Switch 2"          <span class="b">├──</span> "EA FC news"
+ <span class="b">│   ├──</span> "Steam sale news"            <span class="b">├──</span> "Genshin Impact update"
+ <span class="b">│   ├──</span> "Roblox news"                <span class="b">├──</span> "Valorant update"
+ <span class="b">│   ├──</span> "gaming gift card deals"     <span class="b">├──</span> "esports news today"
+ <span class="b">│   ├──</span> "Razer Gold news"            <span class="b">└──</span> "PlayStation Store deals"
+ <span class="b">│</span>
+ <span class="b">├──</span> <span class="c-purple">ENT QUERIES (9)</span>
+ <span class="b">│   ├──</span> "Spotify news today"         <span class="b">├──</span> "streaming service news"
+ <span class="b">│   ├──</span> "Netflix new releases"       <span class="b">├──</span> "YouTube Premium news"
+ <span class="b">│   ├──</span> "Disney Plus news"           <span class="b">├──</span> "Amazon Prime Video news"
+ <span class="b">│   ├──</span> "Crunchyroll anime news"     <span class="b">├──</span> "TikTok news today"
+ <span class="b">│   └──</span> "Apple gift card news"
+ <span class="b">│</span>
+ <span class="b">├──</span> <span class="c-blue">PPM QUERIES (12)</span>
+ <span class="b">│   ├──</span> "gift card deals today"      <span class="b">├──</span> "Flexepin news"
+ <span class="b">│   ├──</span> "Paysafecard news"           <span class="b">├──</span> "Jeton Cash news"
+ <span class="b">│   ├──</span> "digital payment news"       <span class="b">├──</span> "CashLib prepaid news"
+ <span class="b">│   ├──</span> "prepaid card news"          <span class="b">├──</span> "Google Play gift card news"
+ <span class="b">│   ├──</span> "Transcash news"             <span class="b">├──</span> "Amazon gift card deals"
+ <span class="b">│   ├──</span> "Neosurf news"               <span class="b">└──</span> "Visa gift card news"
+ <span class="b">│</span>
+ <span class="b">├──</span> <span class="c-amber">MTU QUERIES (8)</span>
+ <span class="b">│   ├──</span> "mobile top up news"         <span class="b">├──</span> "Lycamobile news"
+ <span class="b">│   ├──</span> "phone credit deals"         <span class="b">├──</span> "Digimobil news"
+ <span class="b">│   ├──</span> "mobile carrier news"        <span class="b">├──</span> "Lebara news"
+ <span class="b">│   └──</span> "prepaid mobile news"        <span class="b">└──</span> "T-Mobile prepaid news"
+ <span class="b">│</span>
+ <span class="b">└──</span> <span class="c-cyan">PRODUCT QUERIES (17)</span>
+ <span class="b">    ├──</span> "Paysafecard news"           <span class="b">├──</span> "Spotify Premium gift card news"
+ <span class="b">    ├──</span> "Roblox gift card news"      <span class="b">├──</span> "Netflix gift card news"
+ <span class="b">    ├──</span> "Steam gift card news"       <span class="b">├──</span> "PlayStation Store card news"
+ <span class="b">    ├──</span> "Transcash recharge news"    <span class="b">├──</span> "Xbox gift card news"
+ <span class="b">    ├──</span> "Lycamobile recharge news"   <span class="b">├──</span> "Fortnite V-Bucks news"
+ <span class="b">    ├──</span> "Neosurf voucher news"       <span class="b">├──</span> "Apple gift card news"
+ <span class="b">    ├──</span> "Google Play gift card news" <span class="b">├──</span> "Amazon gift card news"
+ <span class="b">    ├──</span> "PUBG Mobile UC news"        <span class="b">└──</span> "Razer Gold news"
+ <span class="b">    └──</span> "TikTok coins news"
+
+
+ <span class="src-num"> 3.</span> <span class="c-bright">REDDIT</span>                                             <span class="w">weight: 0.10</span>
+ <span class="b">├──</span> <span class="c-mid">19 subreddits, 5 hot posts each</span>
+ <span class="b">├──</span> <span class="score">Score: 65 fixed</span>
+ <span class="b">│</span>
+ <span class="b">├──</span> <span class="c-green">GAMING</span>
+ <span class="b">│   ├──</span> r/gaming              <span class="b">├──</span> r/FortNiteBR
+ <span class="b">│   ├──</span> r/Games               <span class="b">├──</span> r/EASportsFC
+ <span class="b">│   ├──</span> r/pcgaming            <span class="b">├──</span> r/GenshinImpact
+ <span class="b">│   ├──</span> r/PS5                 <span class="b">├──</span> r/leagueoflegends
+ <span class="b">│   ├──</span> r/XboxSeriesX         <span class="b">├──</span> r/VALORANT
+ <span class="b">│   ├──</span> r/NintendoSwitch      <span class="b">├──</span> r/Roblox
+ <span class="b">│   ├──</span> r/Steam               <span class="b">└──</span> r/NintendoSwitch2
+ <span class="b">│</span>
+ <span class="b">├──</span> <span class="c-purple">ENTERTAINMENT</span>
+ <span class="b">│   ├──</span> r/spotify             <span class="b">├──</span> r/anime
+ <span class="b">│   └──</span> r/netflix             <span class="b">└──</span> r/CrunchyrollPremium
+ <span class="b">│</span>
+ <span class="b">└──</span> <span class="c-orange">DEALS</span>
+ <span class="b">    ├──</span> r/GameDeals
+ <span class="b">    └──</span> r/FreeGameFindings
+
+
+ <span class="src-num"> 4.</span> <span class="c-bright">GOOGLE TRENDS</span>                                      <span class="w">weight: 0.12</span>
+ <span class="b">├──</span> <span class="c-mid">pytrends library, last 7 days</span>
+ <span class="b">│</span>
+ <span class="b">├──</span> <span class="c-green">TRENDING SEARCHES (US top 20)</span>
+ <span class="b">│   └──</span> <span class="score">Score: 80 fixed</span>
+ <span class="b">│</span>
+ <span class="b">└──</span> <span class="c-blue">KEYWORD BATCHES (5 x 5 = 25 keywords)</span>
+ <span class="b">    ├──</span> Batch 1: EA FC 26, Fortnite, GTA 6, PS Plus, Game Pass
+ <span class="b">    ├──</span> Batch 2: Steam sale, Nintendo Switch 2, Roblox, Genshin Impact, Valorant
+ <span class="b">    ├──</span> Batch 3: Spotify Premium, Netflix, Discord Nitro, gift card, V-Bucks
+ <span class="b">    ├──</span> Batch 4: Call of Duty, Minecraft, Xbox, PlayStation, Steam Deck
+ <span class="b">    └──</span> Batch 5: Crunchyroll, anime 2026, Monster Hunter Wilds, Elden Ring, Destiny 2
+</pre>
+
+<!-- TIER 2 -->
+<div class="tier-header t2">
+  <h3><span class="c-blue">&#9632;</span> TIER 2 &mdash; PLATFORM &amp; STORE DATA</h3>
+  <span class="tw c-blue">weight: 0.30 total</span>
+</div>
+
+<pre class="tree">
+ <span class="src-num"> 5.</span> <span class="c-bright">STEAM</span>                                              <span class="w">weight: 0.10</span>
+ <span class="b">├──</span> <span class="c-mid">store.steampowered.com/api/</span>
+ <span class="b">│</span>
+ <span class="b">├──</span> /featured/ <span class="b">────────────</span> Top featured games (10 items)
+ <span class="b">│   └──</span> <span class="score">Score: min(60 + discount x 0.4, 100)</span>
+ <span class="b">│</span>
+ <span class="b">└──</span> /featuredcategories/ <span class="b">──</span> 4 sections x 10 items
+ <span class="b">    ├──</span> top_sellers <span class="b">───────</span> <span class="score">Score: min(70 + discount x 0.3, 100)</span>
+ <span class="b">    ├──</span> specials <span class="b">──────────</span> <span class="score">Score: min(50 + discount x 0.3, 100)</span>
+ <span class="b">    ├──</span> new_releases <span class="b">──────</span> <span class="score">Score: min(60 + discount x 0.3, 100)</span>
+ <span class="b">    └──</span> coming_soon <span class="b">───────</span> <span class="score">Score: min(45 + discount x 0.3, 100)</span>
+
+
+ <span class="src-num"> 6.</span> <span class="c-bright">YOUTUBE</span>                                            <span class="w">weight: 0.05</span>
+ <span class="b">├──</span> <span class="c-mid">youtube.com/feeds/videos.xml (Atom), 10 videos/channel</span>
+ <span class="b">│</span>
+ <span class="b">├──</span> <span class="c-green">NEWS CHANNELS</span>
+ <span class="b">│   ├──</span> IGN               <span class="b">├──</span> SkillUp
+ <span class="b">│   ├──</span> GameSpot           <span class="b">├──</span> ACG
+ <span class="b">│   └──</span> DigitalFoundry     <span class="b">├──</span> Laymen Gaming
+ <span class="b">│                          └──</span> Fextralife
+ <span class="b">├──</span> <span class="c-blue">PLATFORM CHANNELS</span>
+ <span class="b">│   ├──</span> PlayStation        <span class="b">├──</span> Nintendo
+ <span class="b">│   └──</span> Xbox               <span class="b">└──</span> TheGameAwards
+ <span class="b">│</span>
+ <span class="b">└──</span> <span class="score">Score: 60 fixed, 7-day window</span>
+
+
+ <span class="src-num"> 7.</span> <span class="c-bright">COMPETITOR HOMEPAGES</span>                               <span class="w">weight: 0.05</span>
+ <span class="b">├──</span> <span class="c-mid">Direct scraping of 4 competitor sites</span>
+ <span class="b">│</span>
+ <span class="b">├──</span> G2A.com <span class="b">────────</span> Homepage scrape <span class="b">→</span> deals, featured products
+ <span class="b">├──</span> Eneba.com <span class="b">──────</span> Homepage scrape <span class="b">→</span> deals, featured products
+ <span class="b">├──</span> CDKeys.com <span class="b">─────</span> Homepage scrape <span class="b">→</span> deals, featured products
+ <span class="b">└──</span> Kinguin.net <span class="b">────</span> Homepage scrape <span class="b">→</span> deals, featured products
+ <span class="b">    │</span>
+ <span class="b">    └──</span> <span class="score">Extracts: product names, prices, promo banners. Score: 55-65</span>
+
+
+ <span class="src-num"> 8.</span> <span class="c-bright">COMPETITOR BLOGS</span> <span class="c-dim">(SitemapFetcher)</span>                  <span class="w">weight: 0.02</span>
+ <span class="b">├──</span> <span class="c-mid">Blog RSS + HTML scrape from 8 competitors</span>
+ <span class="b">├──</span> <span class="c-mid">17 standard blog paths tried per site</span>
+ <span class="b">│</span>
+ <span class="b">├──</span> <span class="c-green">WITH BLOG OVERRIDES (direct URLs)</span>
+ <span class="b">│   ├──</span> Eneba <span class="b">──────────</span> <span class="url">eneba.com/hub/</span> (RSS)
+ <span class="b">│   ├──</span> DoctorSIM <span class="b">──────</span> <span class="url">blog-en.doctorsim.com/</span> (RSS)
+ <span class="b">│   └──</span> KarteDirekt <span class="b">────</span> <span class="url">kartedirekt.de/blogs</span> (RSS)
+ <span class="b">│</span>
+ <span class="b">├──</span> <span class="c-blue">STANDARD DISCOVERY (auto-detect RSS)</span>
+ <span class="b">│   ├──</span> G2A <span class="b">────────────</span> /blog/feed, /feed, /rss ...
+ <span class="b">│   ├──</span> CDKeys <span class="b">─────────</span> /blog/feed, /feed, /rss ...
+ <span class="b">│   ├──</span> Kinguin <span class="b">────────</span> /blog/feed, /feed, /rss ...
+ <span class="b">│   └──</span> Aufladen <span class="b">───────</span> /blog/feed, /feed, /rss ...
+ <span class="b">│</span>
+ <span class="b">├──</span> <span class="c-dim">FALLBACK: HTML scrape → &lt;article&gt;, .post, .blog-card</span>
+ <span class="b">│</span>
+ <span class="b">└──</span> <span class="score">Score: 50, 14-day window, max 15 posts/competitor</span>
+
+
+ <span class="src-num"> 9.</span> <span class="c-bright">STEAMSPY</span>                                           <span class="w">weight: 0.05</span>
+ <span class="b">├──</span> <span class="url">steamspy.com/api.php?request=top100in2weeks</span>
+ <span class="b">├──</span> <span class="c-mid">Top 20 most-played games (by concurrent users)</span>
+ <span class="b">└──</span> <span class="score">Score: norm(ccu, 500000)</span>
+
+
+<span class="src-num">10.</span> <span class="c-bright">CHEAPSHARK</span>                                         <span class="w">weight: 0.04</span>
+ <span class="b">├──</span> <span class="url">cheapshark.com/api/1.0/deals</span>
+ <span class="b">├──</span> <span class="c-mid">Params: storeID=1 (Steam), upperPrice=$15, 30 deals</span>
+ <span class="b">└──</span> <span class="score">Score: min(40 + savings% x 0.6, 100)</span>
+
+
+<span class="src-num">11.</span> <span class="c-bright">EPIC GAMES</span>                                         <span class="w">weight: 0.05</span>
+ <span class="b">├──</span> <span class="url">store-site-backend-static-ipv4.ak.epicgames.com</span>
+ <span class="b">├──</span> <span class="c-mid">/freeGamesPromotions?locale=en-US</span>
+ <span class="b">├──</span> <span class="score">FREE NOW: score 75</span>
+ <span class="b">└──</span> <span class="score">COMING FREE: score 55</span>
+
+
+<span class="src-num">12.</span> <span class="c-bright">GOG</span>                                                <span class="w">weight: 0.03</span>
+ <span class="b">├──</span> <span class="url">gog.com/games/ajax/filtered</span>
+ <span class="b">├──</span> <span class="c-mid">sort=popularity, 20 games</span>
+ <span class="b">└──</span> <span class="score">Score: min(50 + discount% x 0.3, 100)</span>
+
+
+<span class="src-num">13.</span> <span class="c-bright">HUMBLE BUNDLE</span>                                      <span class="w">weight: 0.03</span>
+ <span class="b">├──</span> <span class="url">humblebundle.com/store/api/search</span>
+ <span class="b">├──</span> <span class="c-mid">sort=bestselling, 20 results</span>
+ <span class="b">└──</span> <span class="score">Score: min(55 + discount% x 0.3, 100)</span>
+</pre>
+
+<!-- TIER 3 -->
+<div class="tier-header t3">
+  <h3><span class="c-amber">&#9632;</span> TIER 3 &mdash; SUPPLEMENTARY SIGNALS</h3>
+  <span class="tw c-amber">weight: 0.20 total</span>
+</div>
+
+<pre class="tree">
+<span class="src-num">14.</span> <span class="c-bright">GAMERPOWER</span>                                         <span class="w">weight: 0.04</span>
+ <span class="b">├──</span> <span class="url">gamerpower.com/api/giveaways?sort-by=popularity</span>
+ <span class="b">├──</span> <span class="c-mid">25 active giveaways</span>
+ <span class="b">└──</span> <span class="score">Score: 65 fixed</span>
+
+
+<span class="src-num">15.</span> <span class="c-bright">FREE-TO-PLAY GAMES</span>                                 <span class="w">weight: 0.01</span>
+ <span class="b">├──</span> <span class="url">freetogame.com/api/games?sort-by=relevance</span>
+ <span class="b">├──</span> <span class="c-mid">20 F2P games</span>
+ <span class="b">└──</span> <span class="score">Score: 45 fixed</span>
+
+
+<span class="src-num">16.</span> <span class="c-bright">ANIME</span> <span class="c-dim">(Jikan/MyAnimeList)</span>                          <span class="w">weight: 0.03</span>
+ <span class="b">├──</span> <span class="url">api.jikan.moe/v4/</span>
+ <span class="b">├──</span> /top/anime?filter=airing <span class="b">────</span> 15 top airing
+ <span class="b">│   └──</span> <span class="score">Score: norm(members, 1000000)</span>
+ <span class="b">└──</span> /seasons/upcoming <span class="b">───────────</span> 10 upcoming
+ <span class="b">    └──</span> <span class="score">Score: norm(members, 500000)</span>
+
+
+<span class="src-num">17.</span> <span class="c-bright">WIKIPEDIA PAGE VIEWS</span>                               <span class="w">weight: 0.01</span>
+ <span class="b">├──</span> <span class="url">wikimedia.org/api/rest_v1/metrics/pageviews/</span>
+ <span class="b">├──</span> <span class="c-mid">20 pages tracked (7-day window, min 1000 views)</span>
+ <span class="b">│</span>
+ <span class="b">├──</span> <span class="c-green">GAMES:</span> GTA_VI, Fortnite, Call_of_Duty, Minecraft,
+ <span class="b">│</span>         Roblox, Valorant, League_of_Legends,
+ <span class="b">│</span>         Elden_Ring, Monster_Hunter_Wilds
+ <span class="b">├──</span> <span class="c-blue">PLATFORMS:</span> PlayStation_5, Xbox_Game_Pass,
+ <span class="b">│</span>             Nintendo_Switch_2, Steam_(service)
+ <span class="b">├──</span> <span class="c-purple">ENTERTAINMENT:</span> Netflix, Crunchyroll, Discord, Spotify
+ <span class="b">└──</span> <span class="c-amber">OTHER:</span> EA_Sports_FC, Genshin_Impact, Honkai:_Star_Rail
+ <span class="b">    │</span>
+ <span class="b">    └──</span> <span class="score">Score: norm(total_views, 200000)</span>
+</pre>
+
+<!-- EVENTS -->
+<div class="tier-header" style="border-color:rgba(244,114,182,.3);background:rgba(244,114,182,.04)">
+  <h3><span class="c-pink">&#9632;</span> EVENTS CALENDAR</h3>
+  <span class="tw c-pink">88 hardcoded + dynamic</span>
+</div>
+
+<pre class="tree">
+ <span class="b">├──</span> <span class="c-red">Game Releases</span> <span class="b">───</span> GTA 6, Monster Hunter Wilds, ...
+ <span class="b">├──</span> <span class="c-green">EA Sports FC</span> <span class="b">────</span> TOTY, Future Stars, TOTS, Futties, ...
+ <span class="b">├──</span> <span class="c-blue">Esports</span> <span class="b">─────────</span> GDC, PAX, Gamescom, Game Awards, ...
+ <span class="b">├──</span> <span class="c-cyan">Genshin/Honkai</span> <span class="b">──</span> Banner updates (every 3 weeks)
+ <span class="b">├──</span> <span class="c-purple">Streaming</span> <span class="b">───────</span> Spotify Wrapped, Disney+ Day, ...
+ <span class="b">├──</span> <span class="c-amber">Gift Card Peaks</span> <span class="b">─</span> Valentine's, Black Friday, Christmas, ...
+ <span class="b">└──</span> <span class="c-pink">Dynamic</span> <span class="b">─────────</span> Detected from news titles ("LIVE NOW")
+</pre>
+
+<!-- PHASE 2 -->
+<div class="flow">▼</div>
+
+<div class="phase-divider">
+  <h2>PHASE 2: <span>PROCESSING PIPELINE</span></h2>
+  <p>Normalize, deduplicate, score, rank</p>
+</div>
+
+<pre class="tree">
+ <span class="c-bright">RAW SIGNALS (~800-1000)</span>
+ <span class="b">    │</span>
+ <span class="b">    ▼</span>
+</pre>
+
+<div class="proc-box pb-green">
+<h4>KEYWORD MATCHING <span>56 categories, ~100 keywords</span></h4>
+<pre class="tree" style="margin:0">
+ <span class="c-mid">Title text matched against KW dict:</span>
+
+ <span class="c-green">GMG (40 cats):</span> EA FC, PlayStation, Xbox, Nintendo, Steam, Fortnite,
+               CoD, GTA, Minecraft, Roblox, Valorant, LoL, Genshin,
+               PUBG, Overwatch, CS2, Apex, Destiny, Elden Ring, ...
+
+ <span class="c-purple">ENT (9 cats):</span>  Spotify, Netflix, Disney+, Amazon Prime, YouTube
+               Premium, Apple, Crunchyroll, Discord, Twitch
+
+ <span class="c-blue">PPM (4 cats):</span>  Gift Cards, Paysafecard, Razer Gold, Google Play
+
+ <span class="c-amber">MTU (6 cats):</span>  Mobile Top Up, Lycamobile, Lebara, T-Mobile,
+               Vodafone, Orange
+</pre>
+</div>
+
+<div class="flow">▼</div>
+
+<div class="proc-box pb-blue">
+<h4>SCORE NORMALIZATION <span>per-source floor &amp; ceiling → 0-100 scale</span></h4>
+<pre class="tree" style="margin:0">
+ oxylabs_news: <span class="score">70-95</span>    steam:      <span class="score">40-100</span>
+ news:         <span class="score">40-80</span>    epic:       <span class="score">45-80</span>
+ reddit:       <span class="score">50-80</span>    gog:        <span class="score">40-85</span>
+ trends:       <span class="score"> 0-100</span>   humble:     <span class="score">45-85</span>
+ wiki:         <span class="score"> 0-100</span>   cheapshark: <span class="score">35-100</span>
+ youtube:      <span class="score">45-75</span>    gamerpower: <span class="score">50-80</span>
+ competitor:   <span class="score">35-60</span>    freetogame: <span class="score">30-60</span>
+ steamspy:     <span class="score"> 0-100</span>   anime:      <span class="score"> 0-100</span>
+ sitemap:      <span class="score">30-55</span>
+</pre>
+</div>
+
+<div class="flow">▼</div>
+
+<div class="proc-box pb-purple">
+<h4>FUZZY DEDUP &amp; MERGE <span>threshold: 0.82</span></h4>
+<pre class="tree" style="margin:0">
+ <span class="c-mid">1.</span> Group signals by primary KW category
+ <span class="c-mid">2.</span> Token pre-filter (Jaccard &ge; 0.25)
+ <span class="c-mid">3.</span> SequenceMatcher &ge; 0.82
+ <span class="c-mid">4.</span> Number guard (e.g. "GTA 5" &ne; "GTA 6")
+ <span class="c-mid">5.</span> Merge → Candidate with source count
+
+ <span class="c-dim">~800 signals</span> <span class="c-green">→</span> <span class="c-bright">~700 candidates</span>
+</pre>
+</div>
+
+<div class="flow">▼</div>
+
+<div class="proc-box pb-amber">
+<h4>COMPOSITE SCORING <span>weighted average &times; confidence</span></h4>
+<pre class="tree" style="margin:0">
+ <span class="c-bright">score = weighted_avg x confidence_mult</span>
+
+ <span class="c-mid">Weights:</span>
+   oxylabs: <span class="w">0.16</span>  trends: <span class="w">0.12</span>  news:    <span class="w">0.12</span>  reddit: <span class="w">0.10</span>
+   steam:   <span class="w">0.10</span>  epic:   <span class="w">0.05</span>  youtube: <span class="w">0.05</span>  competitor: <span class="w">0.05</span>
+   steamspy: <span class="w">0.05</span> cheapshark: <span class="w">0.04</span>  gamerpower: <span class="w">0.04</span>  gog: <span class="w">0.03</span>
+   humble: <span class="w">0.03</span>  anime: <span class="w">0.03</span>  sitemap: <span class="w">0.02</span>  wiki: <span class="w">0.01</span>
+   freetogame: <span class="w">0.01</span>
+
+ <span class="c-mid">Confidence (by source count):</span>
+   1 source:  <span class="c-dim">x 0.55</span>
+   2 sources: <span class="c-amber">x 0.75</span>
+   3 sources: <span class="c-green">x 0.90</span>
+   4+ sources: <span class="c-accent">x 1.00</span>
+</pre>
+</div>
+
+<!-- PHASE 3 -->
+<div class="flow">▼</div>
+
+<div class="phase-divider">
+  <h2>PHASE 3: <span>AI ANALYSIS</span></h2>
+  <p>Gemini 3.1 Pro &middot; 4 passes &middot; Google Search grounding</p>
+</div>
+
+<pre class="tree">
+ <span class="b">┌─────────────────────────────────────────────────────────┐</span>
+ <span class="b">│</span>                                                         <span class="b">│</span>
+ <span class="b">│</span>  <span class="c-green">PASS 0: GROUND TRUTH VERIFICATION</span>                      <span class="b">│</span>
+ <span class="b">│</span>  <span class="b">├──</span> Input: Top 15 candidates + 10 events               <span class="b">│</span>
+ <span class="b">│</span>  <span class="b">├──</span> Tool: <span class="c-accent">Google Search (live grounding)</span>               <span class="b">│</span>
+ <span class="b">│</span>  <span class="b">└──</span> Output: Verified facts + source URLs                <span class="b">│</span>
+ <span class="b">│</span>                                                         <span class="b">│</span>
+ <span class="b">│</span>  <span class="c-blue">PASS 1: PRIORITIZATION</span>                                 <span class="b">│</span>
+ <span class="b">│</span>  <span class="b">├──</span> Input: All candidates + ground intel                <span class="b">│</span>
+ <span class="b">│</span>  <span class="b">├──</span> Rules: <span class="c-accent">&ge;10 from trending</span>, &le;5 from market          <span class="b">│</span>
+ <span class="b">│</span>  <span class="b">│</span>         spread across <span class="c-green">GMG</span>/<span class="c-purple">ENT</span>/<span class="c-blue">PPM</span>/<span class="c-amber">MTU</span>               <span class="b">│</span>
+ <span class="b">│</span>  <span class="b">└──</span> Output: Top 15 with urgency + revenue signal        <span class="b">│</span>
+ <span class="b">│</span>                                                         <span class="b">│</span>
+ <span class="b">│</span>  <span class="c-purple">PASS 2: EXECUTIVE SYNTHESIS</span>  <span class="b">───────────────────┐</span>      <span class="b">│</span>
+ <span class="b">│</span>  <span class="b">├──</span> Input: Top 10 + ground intel              <span class="b">│</span>      <span class="b">│</span>
+ <span class="b">│</span>  <span class="b">└──</span> Output: Summary, 4 team actions,           <span class="b">│</span>      <span class="b">│</span>
+ <span class="b">│</span>              predictions, risks               <span class="b">│</span> <span class="c-dim">parallel</span>
+ <span class="b">│</span>                                                <span class="b">│</span>      <span class="b">│</span>
+ <span class="b">│</span>  <span class="c-pink">PASS 3: COMPETITOR INTEL</span>  <span class="b">──────────────────────┘</span>      <span class="b">│</span>
+ <span class="b">│</span>  <span class="b">├──</span> Input: Competitor signals + live news                <span class="b">│</span>
+ <span class="b">│</span>  <span class="b">├──</span> Fetches real-time news per competitor                <span class="b">│</span>
+ <span class="b">│</span>  <span class="b">└──</span> Output: Threat levels, strategies, market gaps        <span class="b">│</span>
+ <span class="b">│</span>                                                         <span class="b">│</span>
+ <span class="b">│</span>  <span class="c-amber">PASS 4: NEWSLETTER COPY</span>                                <span class="b">│</span>
+ <span class="b">│</span>  <span class="b">├──</span> Tone: <span class="c-dim">"Morning Brew meets gaming news"</span>              <span class="b">│</span>
+ <span class="b">│</span>  <span class="b">└──</span> Output: Hot items, category blurbs,                  <span class="b">│</span>
+ <span class="b">│</span>              competitor gossip, predictions               <span class="b">│</span>
+ <span class="b">│</span>                                                         <span class="b">│</span>
+ <span class="b">└──────────────────────────┬──────────────────────────────┘</span>
+ <span class="b">                           │</span>
+ <span class="b">                           ▼</span>
+</pre>
+
+<!-- PHASE 4 -->
+<div class="phase-divider">
+  <h2>PHASE 4: <span>OUTPUT GENERATION</span></h2>
+  <p>4 output formats + history tracking</p>
+</div>
+
+<pre class="tree">
+ <span class="b">┌─────────────────────────────────────────────────────────┐</span>
+ <span class="b">│</span>                                                         <span class="b">│</span>
+</pre>
+
+<div class="output-grid">
+  <div class="out">
+    <div class="icon">🌐</div>
+    <h5>HTML Dashboard</h5>
+    <p>~70 KB &middot; Interactive</p>
+    <p style="margin-top:6px;text-align:left;font-size:10px;color:#8b9a9c;line-height:1.7">
+      7 KPI cards<br>3 charts<br>Top 15 table<br>Top 3/category<br>
+      Competitor intel<br>Blog activity<br>Events calendar<br>How It Works
+    </p>
+  </div>
+  <div class="out">
+    <div class="icon">📄</div>
+    <h5>Word Report</h5>
+    <p>.docx &middot; Offline</p>
+    <p style="margin-top:6px;text-align:left;font-size:10px;color:#8b9a9c;line-height:1.7">
+      Top 30 opportunities<br>Events calendar<br>Competitor activity<br>
+      Trends vs last week<br>Predictions &amp; risks<br>Data quality metrics
+    </p>
+  </div>
+  <div class="out">
+    <div class="icon">📧</div>
+    <h5>Email Newsletter</h5>
+    <p>~15 KB &middot; Outlook-safe</p>
+    <p style="margin-top:6px;text-align:left;font-size:10px;color:#8b9a9c;line-height:1.7">
+      Hot items &amp; blurbs<br>Category highlights<br>Competitor watch<br>
+      Don't miss events<br>Crystal ball predictions
+    </p>
+  </div>
+</div>
+<div class="output-bottom">
+  <div class="out">
+    <div class="icon">📊</div>
+    <h5>JSON History</h5>
+    <p>Weekly tracking &middot; Delta comparison</p>
+  </div>
+  <div class="out">
+    <div class="icon">📋</div>
+    <h5>Google Sheets</h5>
+    <p>Colab only &middot; Dashboard + Opportunities + History</p>
+  </div>
+</div>
+
+<pre class="tree">
+ <span class="b">│</span>                                                         <span class="b">│</span>
+ <span class="b">└─────────────────────────────────────────────────────────┘</span>
+</pre>
+
+<div class="footer">
+  Recharge.com Opportunity Scanner v5.0 &mdash; Full Data Architecture
+</div>
+
+</div>
+</body>
+</html>
